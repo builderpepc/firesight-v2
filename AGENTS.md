@@ -1,0 +1,1 @@
+C:/Users/troyh/Documents/dev/firesight-v2/CLAUDE.md
