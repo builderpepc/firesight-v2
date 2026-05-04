@@ -1,0 +1,1 @@
+{"flutter":{"platforms":{"android":{"default":{"projectId":"firesight-app","appId":"1:626068809958:android:b27ed5ffbe7de6722af327","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"firesight-app","configurations":{"android":"1:626068809958:android:b27ed5ffbe7de6722af327","ios":"1:626068809958:ios:affba0b8580a85df2af327"}}}}}}

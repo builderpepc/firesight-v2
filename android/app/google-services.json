@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "626068809958",
+    "project_id": "firesight-app",
+    "storage_bucket": "firesight-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:626068809958:android:b27ed5ffbe7de6722af327",
+        "android_client_info": {
+          "package_name": "com.firesight.firesight"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8Ea5q86PZfzSsGwlwEHmeBmTpAqT2oK4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
