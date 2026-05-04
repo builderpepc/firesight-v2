@@ -9,7 +9,7 @@ class InspectionScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(sessionId != null ? 'New Inspection' : 'Session: $sessionId'),
+        title: Text(sessionId == null ? 'New Inspection' : 'Session: $sessionId'),
       ),
       body: const Center(
         child: Column(
