@@ -31,7 +31,7 @@ dependencies:
 
   # Camera
   camera: ^0.11.0
-  # meta_wearables_dat: any - disabled due to android_id plugin conflict during build
+  meta_wearables_dat: ^0.1.3
 
   # File & session management
   path_provider: ^2.1.0

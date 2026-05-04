@@ -202,12 +202,12 @@ targetSdk = 36
 
 ## Phase 6 — Meta Ray-Ban Glasses SDK
 
-> **Status: disabled.** The `meta_wearables_dat` Android package is temporarily disabled in
-> `pubspec.yaml` due to a dependency conflict with `android_id`. The `MetaGlassesCameraProvider`
-> is stubbed (`isAvailable` always returns `false`).
+> **Status: package included, implementation pending.** `meta_wearables_dat ^0.1.3` is in
+> `pubspec.yaml` (the prior `android_id` conflict was resolved in v0.1.3). `MetaGlassesCameraProvider`
+> is stubbed (`isAvailable` always returns `false`) until the capture logic is implemented.
 >
-> To re-enable: resolve the `android_id` conflict and uncomment the dependency in `pubspec.yaml`,
-> then follow the [Meta Wearables Device Access Toolkit Android guide](https://github.com/facebook/meta-wearables-dat-android).
+> To implement: follow the [Meta Wearables Device Access Toolkit Android guide](https://github.com/facebook/meta-wearables-dat-android)
+> and wire up `MetaGlassesProvider.capturePhoto()`.
 
 No action needed for standard setup. The SDK requires a physical Android or iOS device — it
 cannot be tested in an emulator.
