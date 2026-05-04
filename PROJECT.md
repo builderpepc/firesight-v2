@@ -46,3 +46,12 @@ Gemini's voice API is preferred for voice input/output with on-device STT/TTS an
 - [Google Gemma docs](https://ai.google.dev/gemma/docs)
   - [Gemma 4 models](https://ollama.com/library/gemma4)
   - [Gemma 3 1B models](https://ollama.com/library/gemma3:1b)
+- [firebase_ai (Firebase AI Logic) Flutter package](https://pub.dev/packages/firebase_ai)
+- [flutter_riverpod](https://pub.dev/packages/flutter_riverpod) — state management
+- [go_router](https://pub.dev/packages/go_router) — declarative navigation
+- [record](https://pub.dev/packages/record) — microphone recording
+- [flutter_tts](https://pub.dev/packages/flutter_tts) — on-device text-to-speech
+- [speech_to_text](https://pub.dev/packages/speech_to_text) — native STT (Tier 3 fallback)
+- [camera](https://pub.dev/packages/camera) — phone camera access
+- [archive](https://pub.dev/packages/archive) — ZIP import/export (pure Dart)
+- [pdf](https://pub.dev/packages/pdf) + [printing](https://pub.dev/packages/printing) — offline PDF generation and sharing

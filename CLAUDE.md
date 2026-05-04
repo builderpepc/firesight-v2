@@ -8,6 +8,7 @@ Critical project context lives in `PROJECT.md`. It describes all aspects of the 
   - You should always identify the latest stable version before adding a dependency.
   - You should research to *discover* suitable dependencies as well.
 - Strongly prefer popular, well-maintained projects as dependencies instead of random packages or repos that you come across - do the extra research to ensure they fit within that category.
+- If helping the developer install a dependency, refer to its actual setup tutorial or quickstart guide.
 
 # Development Practices
 - Enforce type safety where possible.
@@ -26,6 +27,7 @@ Critical project context lives in `PROJECT.md`. It describes all aspects of the 
 - If preferred tooling is not present on the developer's device, guide them through the installation rather than working without the optimal tools unless they cannot be installed.
 - When you implement or make changes to a feature, update related documentation and/or comments once finished.
   - When adding new major dependencies, add the corresponding docs to the External Docs section in `PROJECT.md`.
+  - Update the agent skills in `.agents/skills/*` as well if needed.
 
 # Technical Details
 For full details, see `PROJECT.md`.
@@ -39,3 +41,6 @@ For full details, see `PROJECT.md`.
 - Use the GitHub CLI (`gh`) to interact with GitHub-specific features outside of `git`'s scope (like PRs). 
 - Local LLM inference capability via Cactus is a requirement - do not toss it out merely due to it being challenging.
 - When designing agentic systems, use structured output APIs and tool calls as opposed to relying on prompting where possible.
+- Even when Powershell is available, prefer Bash unless there is a specific reason to use Powershell.
+- If the Flutter/Dart MCP tool is not available to you, and you are performing relevant work, ask the user to install it as it will help you debug issues with your code. 
+  - Docs: https://docs.flutter.dev/ai/mcp-server
