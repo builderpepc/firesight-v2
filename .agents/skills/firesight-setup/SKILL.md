@@ -177,7 +177,8 @@ Model files are large (1–8 GB). Skip this phase if only testing the online (Ge
 
 ## Phase 5 — Android SDK
 
-The project requires **Android SDK 36** and a **minimum SDK of 23**.
+The project requires **Android SDK 36**. `minSdk` is managed by the Flutter Gradle plugin
+(`flutter.minSdkVersion`, currently 24 in Flutter 3.41+) — do not hardcode it.
 
 ### Verify SDK 36 is installed
 
@@ -193,12 +194,9 @@ sdkmanager "platforms;android-36"
 Check `android/app/build.gradle.kts` — confirm these values:
 ```kotlin
 compileSdk = 36
-minSdk = 23
+minSdk = flutter.minSdkVersion
 targetSdk = 36
 ```
-
-**Important:** Flutter's build process may revert `minSdk` to `flutter.minSdkVersion` when it
-auto-upgrades `build.gradle.kts`. If you see `minSdk` reset after a build, set it back to 23.
 
 ---
 
@@ -260,6 +258,5 @@ coordinates on a different device — do not guess based on screenshot scaling.
 | `google-services.json not found` | Run `flutterfire configure --project=firesight-app` |
 | `Failed to find target 'android-36'` | Run `sdkmanager "platforms;android-36"` |
 | `libcactus.so not found` at runtime | Place the file at `android/app/src/main/jniLibs/arm64-v8a/libcactus.so` |
-| `minSdk` reset after build | Set `minSdk = 23` again in `android/app/build.gradle.kts` |
 | Gemini API calls fail | Enable the Gemini Developer API in Firebase Console → AI Logic |
 | 42 packages have newer incompatible versions | Informational only — `flutter pub get` pins to compatible versions, no action needed |
