@@ -1,0 +1,265 @@
+---
+name: firesight-setup
+description: >
+  Complete environment setup for the FireSight Flutter project. Use this skill whenever a developer
+  asks to set up FireSight, get the project running, configure dependencies, install the Cactus
+  library, set up Firebase, or troubleshoot build failures related to missing setup steps. Also
+  trigger this skill when the developer reports errors like "google-services.json not found",
+  "libcactus.so missing", "SDK 36 not found", or asks why the app won't build from a fresh clone.
+---
+
+# FireSight Environment Setup
+
+This skill sets up everything needed to build and run FireSight on a fresh development machine.
+Work through each phase in order; each phase has a verification step — stop and fix before
+continuing if a phase fails.
+
+## Phase 0 — Link Agent Skills into Claude Code
+
+`.claude/skills/` is gitignored and must be created as a directory junction (Windows) or symlink
+(macOS/Linux) pointing to `.agents/skills/` so Claude Code auto-discovers project skills.
+
+**Windows (PowerShell, run from project root):**
+```powershell
+# Only needed if .claude/skills doesn't already exist
+if (-not (Test-Path .claude/skills)) {
+    cmd /c mklink /J .claude\skills .agents\skills
+}
+```
+
+**macOS / Linux:**
+```bash
+[ -e .claude/skills ] || ln -s ../.agents/skills .claude/skills
+```
+
+Verify:
+```bash
+ls .claude/skills/   # should list firesight-setup
+```
+
+---
+
+## Prerequisites Check
+
+Run these first to confirm the required tooling is installed:
+
+```bash
+flutter --version        # Must be ≥ 3.0
+adb --version            # Must be present (from Android SDK platform-tools)
+node --version           # Required for Firebase CLI
+dart pub global list     # Check for flutterfire_cli
+```
+
+If `flutterfire_cli` is not listed, install it:
+```bash
+dart pub global activate flutterfire_cli
+```
+
+If the Firebase CLI is not installed:
+```bash
+npm install -g firebase-tools
+```
+
+---
+
+## Phase 1 — Flutter Dependencies
+
+```bash
+flutter pub get
+```
+
+Then run a quick analysis to catch any obvious issues before investing time in the heavier setup steps:
+
+```bash
+flutter analyze
+```
+
+Fix any errors before proceeding. Warnings are acceptable.
+
+---
+
+## Phase 2 — Firebase Configuration
+
+FireSight uses Firebase AI Logic (Gemini) for the online voice agent tier.
+
+### Authenticate
+
+```bash
+firebase login
+```
+
+If already authenticated, this exits immediately. If it opens a browser, complete the OAuth flow.
+
+### Generate platform config files
+
+```bash
+flutterfire configure --project=firesight-app
+```
+
+This command writes three files that must exist before the app will compile:
+
+- `lib/firebase_options.dart`
+- `android/app/google-services.json`
+- `ios/Runner/GoogleService-Info.plist`
+
+If any of these already exist and look correct (non-empty, contain the project ID `firesight-app`),
+you can skip `flutterfire configure` for that platform.
+
+### Enable Gemini Developer API
+
+This cannot be done from the CLI — tell the developer:
+
+> In the Firebase Console for project `firesight-app`, navigate to **Build → AI Logic** and
+> enable the Gemini Developer API. This is required for the online voice agent (Tier 1).
+
+---
+
+## Phase 3 — Cactus Native Library (Android)
+
+Cactus provides on-device LLM inference. Its native `.so` must be placed manually.
+
+### Download
+
+Go to https://github.com/cactus-compute/cactus/releases and download the latest Android release
+archive. Extract it.
+
+### Place the library
+
+```bash
+# Create the directory if it doesn't exist
+mkdir -p android/app/src/main/jniLibs/arm64-v8a
+
+# Copy the library — adjust the source path to where you extracted the release
+cp <extracted-path>/arm64-v8a/libcactus.so android/app/src/main/jniLibs/arm64-v8a/libcactus.so
+```
+
+### Verify
+
+```bash
+ls android/app/src/main/jniLibs/arm64-v8a/libcactus.so
+```
+
+Must exit 0. If the file is missing, the app will build but crash at runtime when attempting
+on-device inference.
+
+### iOS note
+
+iOS setup requires Xcode on a macOS machine. See the stub in `docs/ios-setup-stub.md` (if it
+exists) or the Cactus releases page for `Cactus.xcframework`. This is deferred to a macOS
+contributor.
+
+---
+
+## Phase 4 — Model Files
+
+Cactus loads GGUF model files from the device's local storage at runtime. The app looks in the
+`models/` subdirectory of the app's documents directory (configured in `lib/core/constants.dart`).
+
+Download from https://huggingface.co/Cactus-Compute and push to the connected device:
+
+| Tier | Model to download | Use case |
+|------|-------------------|----------|
+| Tier 2 | Gemma 4 E2B or E4B (GGUF) | No internet, capable device (≥ 6 GB RAM). **Not viable on Samsung Galaxy S22** — skip for S22 testing. |
+| Tier 3 | Gemma 3 1B (GGUF) | No internet, lower-power device |
+
+To push a model file to a connected Android device:
+```bash
+# Find the app's files directory (requires a debug build)
+adb shell run-as com.firesight.firesight mkdir -p files/models
+
+adb push <local-model.gguf> /sdcard/Download/<model-file>.gguf
+adb shell run-as com.firesight.firesight cp /sdcard/Download/<model-file>.gguf files/models/
+```
+
+Model files are large (1–8 GB). Skip this phase if only testing the online (Gemini) tier.
+
+---
+
+## Phase 5 — Android SDK
+
+The project requires **Android SDK 36** and a **minimum SDK of 23**.
+
+### Verify SDK 36 is installed
+
+```bash
+sdkmanager --list_installed | grep "platforms;android-36"
+```
+
+If not present:
+```bash
+sdkmanager "platforms;android-36"
+```
+
+Check `android/app/build.gradle.kts` — confirm these values:
+```kotlin
+compileSdk = 36
+minSdk = 23
+targetSdk = 36
+```
+
+**Important:** Flutter's build process may revert `minSdk` to `flutter.minSdkVersion` when it
+auto-upgrades `build.gradle.kts`. If you see `minSdk` reset after a build, set it back to 23.
+
+---
+
+## Phase 6 — Meta Ray-Ban Glasses SDK
+
+> **Status: disabled.** The `meta_wearables_dat` Android package is temporarily disabled in
+> `pubspec.yaml` due to a dependency conflict with `android_id`. The `MetaGlassesCameraProvider`
+> is stubbed (`isAvailable` always returns `false`).
+>
+> To re-enable: resolve the `android_id` conflict and uncomment the dependency in `pubspec.yaml`,
+> then follow the [Meta Wearables Device Access Toolkit Android guide](https://github.com/facebook/meta-wearables-dat-android).
+
+No action needed for standard setup.
+
+---
+
+## Phase 7 — Build and Verify
+
+### Build a debug APK
+
+```bash
+flutter build apk --debug
+```
+
+A successful build prints a path ending in `app-debug.apk`. CMake 3.22.1 will be downloaded
+automatically on the first build if not present — this is expected and takes a few minutes.
+
+### Run on a connected device
+
+```bash
+flutter run
+```
+
+For a Samsung Galaxy S22 (or any Android 6+ device): enable **Developer Options → USB Debugging**
+before connecting via USB.
+
+### Smoke test
+
+After launch, verify:
+1. The HomeScreen renders (FireSight logo, list of past sessions, FAB)
+2. Tapping the FAB navigates to the InspectionScreen ("New Inspection" title)
+3. No crash or red error screen
+
+To tap the FAB via adb (useful for automated verification — coordinates are for Galaxy S22
+1080×2340 display):
+```bash
+adb shell input tap 782 2064
+```
+
+Use `adb shell uiautomator dump /sdcard/ui.xml && adb pull /sdcard/ui.xml` to find button
+coordinates on a different device — do not guess based on screenshot scaling.
+
+---
+
+## Common Errors
+
+| Error | Fix |
+|-------|-----|
+| `google-services.json not found` | Run `flutterfire configure --project=firesight-app` |
+| `Failed to find target 'android-36'` | Run `sdkmanager "platforms;android-36"` |
+| `libcactus.so not found` at runtime | Place the file at `android/app/src/main/jniLibs/arm64-v8a/libcactus.so` |
+| `minSdk` reset after build | Set `minSdk = 23` again in `android/app/build.gradle.kts` |
+| Gemini API calls fail | Enable the Gemini Developer API in Firebase Console → AI Logic |
+| 42 packages have newer incompatible versions | Informational only — `flutter pub get` pins to compatible versions, no action needed |
