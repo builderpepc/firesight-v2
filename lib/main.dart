@@ -4,17 +4,16 @@ import 'package:firebase_core/firebase_core.dart';
 
 import 'core/router.dart';
 import 'core/theme.dart';
-import 'core/di.dart';
+import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
-  initializeProviders();
-  runApp(const ProviderScope(child: MyApp()));
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  runApp(const ProviderScope(child: FireSightApp()));
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class FireSightApp extends StatelessWidget {
+  const FireSightApp({super.key});
 
   @override
   Widget build(BuildContext context) {

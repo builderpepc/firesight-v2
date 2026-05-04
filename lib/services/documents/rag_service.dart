@@ -1,3 +1,4 @@
+// ignore_for_file: unused_field
 import 'package:cactus/cactus.dart';
 
 /// CactusRAG: storeDocument, query for building document Q&A.

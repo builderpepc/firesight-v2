@@ -1,3 +1,4 @@
+// ignore_for_file: unused_field
 import 'dart:async';
 import 'package:cactus/cactus.dart';
 import 'package:firesight/models/inspection_session.dart';

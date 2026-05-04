@@ -1,3 +1,4 @@
+// ignore_for_file: unused_field, unused_local_variable
 import 'dart:io';
 import 'package:firebase_ai/firebase_ai.dart';
 

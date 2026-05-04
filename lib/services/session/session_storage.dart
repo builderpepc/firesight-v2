@@ -1,18 +1,22 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:uuid/uuid.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/models/session_metadata.dart';
 import 'package:firesight/core/constants.dart';
 
-/// Reads/writes session directory (JSON + photo files).
+/// Reads and writes sessions as directories: sessions/<id>/session.json
+///
+/// session.json holds the full InspectionSession (observations and building
+/// documents included) via InspectionSession.toJson() / fromJson().
 class SessionStorage {
-  SessionStorage(this._basePath)
-      : _sessionsDir = Directory('$_basePath/${AppPaths.sessions}'),
-        _photosDir = Directory('$_basePath/${AppPaths.photos}');
+  SessionStorage(String basePath)
+      : _sessionsDir = Directory('$basePath/${AppPaths.sessions}'),
+        _photosDir = Directory('$basePath/${AppPaths.photos}');
 
-  final String _basePath;
   final Directory _sessionsDir;
   final Directory _photosDir;
+  final _uuid = const Uuid();
 
   Future<void> ensureInitialized() async {
     await _sessionsDir.create(recursive: true);
@@ -23,11 +27,12 @@ class SessionStorage {
     await ensureInitialized();
     final sessions = <SessionMetadata>[];
     for (final entity in _sessionsDir.listSync()) {
-      if (entity.path.endsWith('.json')) {
-        final file = File(entity.path);
-        final content = await file.readAsString();
-        final json = jsonDecode(content) as Map<String, dynamic>;
-        sessions.add(SessionMetadata.fromJson(json));
+      if (entity is Directory) {
+        final metaFile = File('${entity.path}/session.json');
+        if (metaFile.existsSync()) {
+          final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
+          sessions.add(SessionMetadata.fromJson(json));
+        }
       }
     }
     return sessions..sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -39,12 +44,8 @@ class SessionStorage {
     if (!sessionDir.existsSync()) return null;
 
     final metaFile = File('${sessionDir.path}/session.json');
-    final metaContent = await metaFile.readAsString();
-    final metaJson = jsonDecode(metaContent) as Map<String, dynamic>;
-    final session = InspectionSession.fromJson(metaJson);
-
-    // TODO: Load building documents from documents.json if it exists.
-    return session;
+    final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
+    return InspectionSession.fromJson(json);
   }
 
   Future<InspectionSession> createSession(String name) async {
@@ -59,7 +60,7 @@ class SessionStorage {
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
-    await _writeSessionMetadata(sessionDir, session);
+    await _writeSession(sessionDir, session);
     return session;
   }
 
@@ -69,8 +70,7 @@ class SessionStorage {
     if (!sessionDir.existsSync()) {
       await sessionDir.create(recursive: true);
     }
-    await _writeSessionMetadata(sessionDir, session);
-    // TODO: Write observations.json and documents.json files.
+    await _writeSession(sessionDir, session);
   }
 
   Future<void> deleteSession(String id) async {
@@ -80,11 +80,10 @@ class SessionStorage {
     }
   }
 
-  Future<void> _writeSessionMetadata(Directory sessionDir, InspectionSession session) async {
+  Future<void> _writeSession(Directory sessionDir, InspectionSession session) async {
     final file = File('${sessionDir.path}/session.json');
-    final json = session.toJson();
-    await file.writeAsString(jsonEncode(json));
+    await file.writeAsString(jsonEncode(session.toJson()));
   }
 
-  String _generateId() => DateTime.now().millisecondsSinceEpoch.toString();
+  String _generateId() => _uuid.v4();
 }
