@@ -209,11 +209,60 @@ targetSdk = 36
 > To re-enable: resolve the `android_id` conflict and uncomment the dependency in `pubspec.yaml`,
 > then follow the [Meta Wearables Device Access Toolkit Android guide](https://github.com/facebook/meta-wearables-dat-android).
 
-No action needed for standard setup.
+No action needed for standard setup. The SDK requires a physical Android or iOS device — it
+cannot be tested in an emulator.
 
 ---
 
-## Phase 7 — Build and Verify
+## Phase 7 — Android Emulator Setup (no physical device)
+
+If the developer does not have an Android device, set up an emulator. Note that the Meta
+Ray-Ban glasses SDK cannot be tested in an emulator — physical Android or iOS devices are
+needed for that.
+
+### Install the system image
+
+```bash
+sdkmanager "system-images;android-35;google_apis_playstore;x86_64"
+```
+
+This is ~1.5 GB and takes a few minutes.
+
+### Create the AVD
+
+```bash
+echo no | avdmanager create avd \
+  --name "firesight_dev" \
+  --package "system-images;android-35;google_apis_playstore;x86_64" \
+  --device "pixel_6"
+```
+
+Verify: `avdmanager list avd` should show `firesight_dev`.
+
+### Boot the emulator
+
+**macOS / Linux:**
+```bash
+$ANDROID_HOME/emulator/emulator -avd firesight_dev -no-snapshot-load &
+```
+
+**Windows (PowerShell):**
+```powershell
+Start-Process "$env:LOCALAPPDATA\Android\Sdk\emulator\emulator.exe" "-avd firesight_dev -no-snapshot-load"
+```
+
+Wait for the emulator to fully boot (the home screen appears) before running the app. You can
+poll boot completion with:
+```bash
+adb -s emulator-5554 shell getprop sys.boot_completed   # prints "1" when ready
+```
+
+The first cold boot takes 2–5 minutes. Subsequent boots are faster if you allow snapshots
+(omit `-no-snapshot-load`).
+
+---
+
+## Phase 8 — Build and Verify
 
 ### Build a debug APK
 
@@ -224,30 +273,35 @@ flutter build apk --debug
 A successful build prints a path ending in `app-debug.apk`. CMake 3.22.1 will be downloaded
 automatically on the first build if not present — this is expected and takes a few minutes.
 
-### Run on a connected device
+If you previously built for a different device architecture (e.g. physical phone → emulator),
+run `flutter clean` first to avoid stale APK errors.
+
+### Run on device
 
 ```bash
-flutter run
+flutter run   # auto-selects the only connected device/emulator
 ```
 
-For a Samsung Galaxy S22 (or any Android 6+ device): enable **Developer Options → USB Debugging**
-before connecting via USB.
+For a physical Android device: enable **Developer Options → USB Debugging** before connecting.
 
 ### Smoke test
 
 After launch, verify:
-1. The HomeScreen renders (FireSight logo, list of past sessions, FAB)
+1. The HomeScreen renders (FireSight title, "Recent Sessions - TODO" placeholder, FAB)
 2. Tapping the FAB navigates to the InspectionScreen ("New Inspection" title)
 3. No crash or red error screen
 
-To tap the FAB via adb (useful for automated verification — coordinates are for Galaxy S22
-1080×2340 display):
+To find the FAB's tap coordinates on any device without guessing:
 ```bash
-adb shell input tap 782 2064
+adb shell uiautomator dump /sdcard/ui.xml
+adb pull /sdcard/ui.xml
+# grep for "New Inspection" and read the bounds attribute
 ```
 
-Use `adb shell uiautomator dump /sdcard/ui.xml && adb pull /sdcard/ui.xml` to find button
-coordinates on a different device — do not guess based on screenshot scaling.
+Then tap the center of those bounds:
+```bash
+adb shell input tap <cx> <cy>
+```
 
 ---
 
