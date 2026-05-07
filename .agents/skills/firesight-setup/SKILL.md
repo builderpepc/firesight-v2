@@ -209,8 +209,29 @@ targetSdk = 36
 > To implement: follow the [Meta Wearables Device Access Toolkit Android guide](https://github.com/facebook/meta-wearables-dat-android)
 > and wire up `MetaGlassesProvider.capturePhoto()`.
 
-No action needed for standard setup. The SDK requires a physical Android or iOS device — it
-cannot be tested in an emulator.
+The Meta Wearables native Android libraries are hosted on GitHub Packages and require a GitHub
+personal access token with `read:packages` scope to download during a Gradle build.
+
+### Add GitHub token to local.properties
+
+Add the following line to `android/local.properties` (this file is gitignored):
+
+```
+github_token=<your_github_pat>
+```
+
+Create a token at GitHub → Settings → Developer settings → Personal access tokens → Fine-grained
+tokens (or classic tokens) — only `read:packages` scope is required.
+
+Alternatively, set the `GITHUB_TOKEN` environment variable instead of using `local.properties`.
+
+Without this token, `flutter build apk` will fail with:
+
+```
+Could not find com.meta.wearable:mwdat-core:0.3.0
+```
+
+The SDK itself requires a physical Android or iOS device — it cannot be tested in an emulator.
 
 ---
 

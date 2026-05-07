@@ -1,7 +1,20 @@
 allprojects {
+    val localProperties = java.util.Properties().apply {
+        val lp = rootProject.file("local.properties")
+        if (lp.exists()) lp.inputStream().use { load(it) }
+    }
     repositories {
         google()
         mavenCentral()
+        maven {
+            url = uri("https://maven.pkg.github.com/facebook/meta-wearables-dat-android")
+            credentials {
+                username = ""
+                password = System.getenv("GITHUB_TOKEN")
+                    ?: localProperties.getProperty("github_token")
+                    ?: error("Meta Wearables SDK requires a GitHub token. Set GITHUB_TOKEN env var or add github_token=<token> to android/local.properties")
+            }
+        }
     }
 }
 
