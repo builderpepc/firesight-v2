@@ -27,8 +27,9 @@ android {
         applicationId = "com.firesight.firesight"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = 29
         targetSdk = 36
+        manifestPlaceholders["mwdatCallbackScheme"] = "firesight"
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
