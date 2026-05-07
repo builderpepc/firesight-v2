@@ -34,6 +34,11 @@ For full details, see `PROJECT.md`.
 - Use `adb` to debug the app on connected Android devices or emulators.
   - You can also use `adb` to simulate user actions and verify success.
 - Use the corresponding tools for iOS to debug the app on that platform.
+  - Use `xcrun simctl list devices available` to find simulators.
+  - Use `xcrun simctl boot <simulator-udid>` and `open -a Simulator` to start one.
+  - Use `flutter run -d <simulator-udid>` to run the app on iOS Simulator.
+  - Use `flutter build ios --no-codesign` for a compile-only iOS verification.
+  - iOS currently requires CocoaPods and deployment target 15.0 because the FlutterFire pods require iOS 15+.
 - Always implement features with cross-platform compatibility in mind.
   - Much of the architecture is cross-platform out of the box (e.g. Flutter, Cactus Flutter SDK).
   - Some dependencies have both iOS and Android versions available (e.g. Meta Glasses SDK).

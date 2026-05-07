@@ -1,17 +1,13 @@
-# firesight
+# FireSight
 
-A new Flutter project.
+Voice automation for fire department pre-incident inspections.
 
-## Getting Started
+FireSight is a Flutter app for capturing inspection observations by voice, attaching photos, saving
+inspection sessions locally, and exporting reports. The app is designed for mobile use with online
+Gemini support and offline fallbacks.
 
-This project is a starting point for a Flutter application.
+## Setup
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+This project is designed to be set up with the help of a coding agent (e.g. Claude Code). Open the
+project in your agent, ask it to set up the project, and it will auto-discover the project context
+and setup skill in `.agents/skills/firesight-setup/` and guide you through the full process.

@@ -45,10 +45,21 @@ Run these first to confirm the required tooling is installed:
 
 ```bash
 flutter --version        # Must be ≥ 3.0
-adb --version            # Must be present (from Android SDK platform-tools)
+adb --version            # Must be present for Android work (from Android SDK platform-tools)
 node --version           # Required for Firebase CLI
 dart pub global list     # Check for flutterfire_cli
 ```
+
+For iOS work on macOS, also verify:
+
+```bash
+xcodebuild -version      # Xcode must be installed
+pod --version            # CocoaPods must be installed
+xcrun simctl list devices available
+```
+
+If Flutter was installed by the VS Code Flutter extension but is not on `PATH`, use the SDK's
+absolute `bin/flutter` path for setup commands, or add that `bin` directory to the shell `PATH`.
 
 If `flutterfire_cli` is not listed, install it:
 ```bash
@@ -58,6 +69,11 @@ dart pub global activate flutterfire_cli
 If the Firebase CLI is not installed:
 ```bash
 npm install -g firebase-tools
+```
+
+If CocoaPods is not installed on macOS:
+```bash
+brew install cocoapods
 ```
 
 ---
@@ -114,7 +130,93 @@ This cannot be done from the CLI — tell the developer:
 
 ---
 
-## Phase 3 — Cactus Native Library (Android)
+## Phase 3 — iOS Setup
+
+iOS setup has been verified on macOS with Xcode, CocoaPods, Flutter 3.41.9, and an iOS 26.4
+simulator. Keep the iOS deployment target at **15.0** because the current FlutterFire pods
+(`firebase_core`, `firebase_auth`, and `firebase_ai`) require iOS 15 or newer.
+
+### Required checked-in scaffold
+
+These files must exist and should be committed:
+
+- `ios/Podfile`
+- `ios/Podfile.lock`
+- `ios/Flutter/Debug.xcconfig`
+- `ios/Flutter/Release.xcconfig`
+- `ios/Flutter/Profile.xcconfig`
+- `ios/Runner/GoogleService-Info.plist`
+- `ios/Runner.xcodeproj/project.pbxproj`
+- `ios/Runner.xcworkspace/contents.xcworkspacedata`
+
+Do not commit generated local artifacts such as `ios/Pods/`, `ios/.symlinks/`,
+`ios/Flutter/Generated.xcconfig`, `ios/Flutter/flutter_export_environment.sh`, or `build/`.
+
+### Install iOS dependencies
+
+```bash
+flutter precache --ios
+flutter pub get
+cd ios
+pod install
+cd ..
+```
+
+If `pod install` fails with a missing Flutter engine artifact such as
+`Flutter.xcframework must exist`, run:
+
+```bash
+flutter precache --ios
+```
+
+If `pod install` says Firebase pods require a higher minimum deployment target, confirm the
+project and `ios/Podfile` are still set to `15.0`.
+
+### Build and run on an iOS simulator
+
+List simulators:
+
+```bash
+xcrun simctl list devices available
+```
+
+Boot one simulator, for example:
+
+```bash
+xcrun simctl boot <simulator-udid>
+open -a Simulator
+```
+
+Run the app:
+
+```bash
+flutter run -d <simulator-udid>
+```
+
+The first run should build, install, and launch FireSight in Simulator. If Flutter reports
+`Target native_assets required define SdkRoot but it was not provided` while still launching
+successfully, treat it as a warning unless the app fails to install or run.
+
+To relaunch an already-installed simulator app without attaching Flutter:
+
+```bash
+xcrun simctl launch <simulator-udid> com.firesight.firesight
+```
+
+### iOS smoke test
+
+After launch, verify:
+
+1. The HomeScreen renders.
+2. Tapping the FAB opens a new inspection.
+3. No crash or red error screen appears.
+
+The Meta Ray-Ban glasses SDK still requires physical device testing for camera capture. The
+simulator is sufficient for validating the Flutter app scaffold and normal navigation.
+
+---
+
+## Phase 4 — Cactus Native Library (Android)
 
 Cactus provides on-device LLM inference. Its native `.so` must be placed manually.
 
@@ -144,13 +246,13 @@ on-device inference.
 
 ### iOS note
 
-iOS setup requires Xcode on a macOS machine. See the stub in `docs/ios-setup-stub.md` (if it
-exists) or the Cactus releases page for `Cactus.xcframework`. This is deferred to a macOS
-contributor.
+The Flutter iOS app scaffold builds and runs in Simulator through CocoaPods. Cactus model runtime
+behavior on iOS still needs dedicated physical-device testing when offline inference is implemented
+beyond the current stubs.
 
 ---
 
-## Phase 4 — Model Files
+## Phase 5 — Model Files
 
 Cactus loads GGUF model files from the device's local storage at runtime. The app looks in the
 `models/` subdirectory of the app's documents directory (configured in `lib/core/constants.dart`).
@@ -175,7 +277,7 @@ Model files are large (1–8 GB). Skip this phase if only testing the online (Ge
 
 ---
 
-## Phase 5 — Android SDK
+## Phase 6 — Android SDK
 
 The project requires **Android SDK 36**. `minSdk` is managed by the Flutter Gradle plugin
 (`flutter.minSdkVersion`, currently 24 in Flutter 3.41+) — do not hardcode it.
@@ -200,7 +302,7 @@ targetSdk = 36
 
 ---
 
-## Phase 6 — Meta Ray-Ban Glasses SDK
+## Phase 7 — Meta Ray-Ban Glasses SDK
 
 > **Status: package included, implementation pending.** `meta_wearables_dat ^0.1.3` is in
 > `pubspec.yaml` (the prior `android_id` conflict was resolved in v0.1.3). `MetaGlassesCameraProvider`
@@ -214,7 +316,7 @@ cannot be tested in an emulator.
 
 ---
 
-## Phase 7 — Android Emulator Setup (no physical device)
+## Phase 8 — Android Emulator Setup (no physical device)
 
 If the developer does not have an Android device, set up an emulator. Note that the Meta
 Ray-Ban glasses SDK cannot be tested in an emulator — physical Android or iOS devices are
@@ -262,7 +364,22 @@ The first cold boot takes 2–5 minutes. Subsequent boots are faster if you allo
 
 ---
 
-## Phase 8 — Build and Verify
+## Phase 9 — Build and Verify
+
+### Analyze and test
+
+```bash
+flutter analyze
+flutter test
+```
+
+### Build iOS without codesigning
+
+```bash
+flutter build ios --no-codesign
+```
+
+A successful iOS build prints a path ending in `build/ios/iphoneos/Runner.app`.
 
 ### Build a debug APK
 
@@ -310,6 +427,11 @@ adb shell input tap <cx> <cy>
 | Error | Fix |
 |-------|-----|
 | `google-services.json not found` | Run `flutterfire configure --project=firesight-app` |
+| `GoogleService-Info.plist not found` | Run `flutterfire configure --project=firesight-app` or restore `ios/Runner/GoogleService-Info.plist` |
+| Firebase pod requires a higher minimum deployment target | Keep iOS deployment target and `ios/Podfile` at `15.0` |
+| `Flutter.xcframework must exist` during `pod install` | Run `flutter precache --ios`, then rerun `pod install` |
+| CocoaPods warns it did not set base configuration | Include Pods xcconfigs from `ios/Flutter/Debug.xcconfig`, `Release.xcconfig`, and `Profile.xcconfig` |
+| CoreSimulatorService connection errors | Rerun `xcrun simctl ...` with normal macOS permissions; restart Simulator if needed |
 | `Failed to find target 'android-36'` | Run `sdkmanager "platforms;android-36"` |
 | `libcactus.so not found` at runtime | Place the file at `android/app/src/main/jniLibs/arm64-v8a/libcactus.so` |
 | Gemini API calls fail | Enable the Gemini Developer API in Firebase Console → AI Logic |
