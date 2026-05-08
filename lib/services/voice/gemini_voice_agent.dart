@@ -8,7 +8,8 @@ import 'package:firesight/services/voice/voice_agent.dart';
 
 // Vertex AI native-audio model (audio in, audio out + transcription).
 const _kLiveModel = 'gemini-live-2.5-flash-preview-native-audio-09-2025';
-const _kSampleRate = 24000;
+// Gemini Live API requires 16 kHz PCM input.
+const _kInputSampleRate = 16000;
 
 /// Tier 1: Firebase AI Gemini Live API (internet required).
 ///
@@ -56,7 +57,6 @@ class GeminiVoiceAgent implements VoiceAgent {
     }
 
     await _audioOutput.init();
-    await _audioOutput.startPlayback();
 
     final liveModel = _firebaseAI.liveGenerativeModel(
       model: _kLiveModel,
@@ -81,7 +81,7 @@ class GeminiVoiceAgent implements VoiceAgent {
     final audioStream = await _recorder.startStream(
       const RecordConfig(
         encoder: AudioEncoder.pcm16bits,
-        sampleRate: _kSampleRate,
+        sampleRate: _kInputSampleRate,
         numChannels: 1,
       ),
     );

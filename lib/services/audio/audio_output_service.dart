@@ -4,9 +4,10 @@ import 'package:flutter_soloud/flutter_soloud.dart';
 /// Manages real-time PCM audio output via SoLoud's buffer-streaming API.
 ///
 /// Call [init] once on startup (safe to call repeatedly — no-ops if already
-/// initialised). At the start of each agent session call [startPlayback], feed
-/// incoming 24 kHz mono s16le PCM chunks via [addChunk], then call
-/// [stopPlayback] when the session ends.
+/// initialised). Feed incoming 24 kHz mono s16le PCM chunks via [addChunk];
+/// a new SoLoud buffer stream is created automatically whenever audio arrives
+/// after a gap (the previous stream closes when its buffer drains). Call
+/// [stopPlayback] at session end to clean up any active stream.
 class AudioOutputService {
   AudioSource? _stream;
   SoundHandle? _handle;
@@ -20,27 +21,17 @@ class AudioOutputService {
     await SoLoud.instance.init(sampleRate: _sampleRate, channels: _channels);
   }
 
-  /// Creates a new buffer stream and begins playback. Call once per session.
-  Future<void> startPlayback() async {
-    if (!SoLoud.instance.isInitialized) return;
-    _stream = SoLoud.instance.setBufferStream(
-      bufferingType: BufferingType.released,
-      bufferingTimeNeeds: 0,
-      sampleRate: _sampleRate,
-      channels: _channels,
-      format: _format,
-    );
-    // play() is synchronous in flutter_soloud 4.x.
-    _handle = SoLoud.instance.play(_stream!);
-  }
-
-  /// Feeds a raw PCM chunk into the active playback stream.
+  /// Feeds a raw PCM chunk into the active playback stream, creating a new
+  /// stream if the previous one has already drained and closed.
   void addChunk(Uint8List bytes) {
-    final s = _stream;
-    if (s != null) SoLoud.instance.addAudioDataStream(s, bytes);
+    if (!SoLoud.instance.isInitialized) return;
+    final h = _handle;
+    final streamEnded = h == null || !SoLoud.instance.getIsValidVoiceHandle(h);
+    if (streamEnded) _openStream();
+    SoLoud.instance.addAudioDataStream(_stream!, bytes);
   }
 
-  /// Signals end-of-data and stops the current playback stream.
+  /// Signals end-of-data and stops any active playback stream.
   Future<void> stopPlayback() async {
     final s = _stream;
     final h = _handle;
@@ -52,5 +43,17 @@ class AudioOutputService {
       SoLoud.instance.setDataIsEnded(s);
       await SoLoud.instance.stop(h);
     }
+  }
+
+  void _openStream() {
+    _stream = SoLoud.instance.setBufferStream(
+      bufferingType: BufferingType.released,
+      bufferingTimeNeeds: 0,
+      sampleRate: _sampleRate,
+      channels: _channels,
+      format: _format,
+    );
+    // play() is synchronous in flutter_soloud 4.x.
+    _handle = SoLoud.instance.play(_stream!);
   }
 }
