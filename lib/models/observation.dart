@@ -12,6 +12,8 @@ class Observation extends Equatable {
     this.text,
     this.photoFileRef,
     this.response,
+    this.floorplanX,
+    this.floorplanY,
   });
 
   final String id;
@@ -23,11 +25,25 @@ class Observation extends Equatable {
 
   final String? response;
 
+  @JsonKey(name: 'floorplan_x')
+  final double? floorplanX;
+
+  @JsonKey(name: 'floorplan_y')
+  final double? floorplanY;
+
   factory Observation.fromJson(Map<String, dynamic> json) =>
       _$ObservationFromJson(json);
 
   Map<String, dynamic> toJson() => _$ObservationToJson(this);
 
   @override
-  List<Object?> get props => [id, timestamp, text, photoFileRef, response];
+  List<Object?> get props => [
+        id,
+        timestamp,
+        text,
+        photoFileRef,
+        response,
+        floorplanX,
+        floorplanY,
+      ];
 }

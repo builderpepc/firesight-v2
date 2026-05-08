@@ -20,6 +20,7 @@ InspectionSession _$InspectionSessionFromJson(Map<String, dynamic> json) =>
               ?.map((e) => BuildingDocument.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
+      floorplanPath: json['floorplan_path'] as String?,
     );
 
 Map<String, dynamic> _$InspectionSessionToJson(InspectionSession instance) =>
@@ -30,4 +31,5 @@ Map<String, dynamic> _$InspectionSessionToJson(InspectionSession instance) =>
       'updatedAt': instance.updatedAt.toIso8601String(),
       'observations': instance.observations,
       'building_documents': instance.buildingDocuments,
+      'floorplan_path': instance.floorplanPath,
     };
