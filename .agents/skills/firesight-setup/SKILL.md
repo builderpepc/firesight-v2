@@ -121,12 +121,21 @@ This command writes three files that must exist before the app will compile:
 If any of these already exist and look correct (non-empty, contain the project ID `firesight-app`),
 you can skip `flutterfire configure` for that platform.
 
-### Enable Gemini Developer API
+### Enable Vertex AI backend (required for Live API)
 
-This cannot be done from the CLI — tell the developer:
+FireSight uses `FirebaseAI.vertexAI()` (not the Gemini Developer API) because the Live API
+(streaming bidirectional audio) is only available on the Vertex AI backend.
 
-> In the Firebase Console for project `firesight-app`, navigate to **Build → AI Logic** and
-> enable the Gemini Developer API. This is required for the online voice agent (Tier 1).
+This requires two steps that cannot be done from the CLI:
+
+**Step 1 — Enable GCP APIs.** In the [Google Cloud Console](https://console.cloud.google.com)
+for the `firesight-app` project, navigate to **APIs & Services → Enable APIs** and enable:
+- `Firebase AI Logic API` (`firebasevertexai.googleapis.com`)
+- `Vertex AI API` (`aiplatform.googleapis.com`)
+
+**Step 2 — Enable billing.** Vertex AI requires a billing account linked to the GCP project.
+In the Cloud Console, go to **Billing** and link a billing account if one is not already attached.
+Without billing, API calls will fail at runtime with a WebSocket 1008 error.
 
 ---
 
@@ -428,6 +437,8 @@ After launch, verify:
 1. The HomeScreen renders (FireSight title, "Recent Sessions - TODO" placeholder, FAB)
 2. Tapping the FAB navigates to the InspectionScreen ("New Inspection" title)
 3. No crash or red error screen
+4. Tap the bug icon (🐛) in the AppBar to open the **Voice Agent Debug** screen; with internet,
+   the tier badge should read "Tier 1 — Gemini" and the Start button should be enabled
 
 To find the FAB's tap coordinates on any device without guessing:
 ```bash
@@ -455,5 +466,9 @@ adb shell input tap <cx> <cy>
 | CoreSimulatorService connection errors | Rerun `xcrun simctl ...` with normal macOS permissions; restart Simulator if needed |
 | `Failed to find target 'android-36'` | Run `sdkmanager "platforms;android-36"` |
 | `libcactus.so not found` at runtime | Place the file at `android/app/src/main/jniLibs/arm64-v8a/libcactus.so` |
-| Gemini API calls fail | Enable the Gemini Developer API in Firebase Console → AI Logic |
+| Gemini API calls fail with WebSocket 1008 "not found" | Wrong model name — use `gemini-live-2.5-flash-preview-native-audio-09-2025` (check `lib/core/constants.dart`) |
+| Gemini API calls fail with WebSocket 1008 "API not enabled" | Enable `firebasevertexai.googleapis.com` and `aiplatform.googleapis.com` in GCP Console |
+| Gemini API calls fail with WebSocket 1008 "billing must be enabled" | Link a billing account to the GCP project in Cloud Console → Billing |
+| Voice agent connects but agent replies never appear | Do not use `ResponseModalities.text` with the native-audio model — use `ResponseModalities.audio` with `outputAudioTranscription: AudioTranscriptionConfig()` |
+| Android emulator mic sends silence / no transcript | Run `adb emu avd hostmicon` to enable host-mic passthrough; the emulator virtual mic sends silence by default |
 | 42 packages have newer incompatible versions | Informational only — `flutter pub get` pins to compatible versions, no action needed |

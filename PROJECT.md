@@ -47,6 +47,7 @@ Gemini's voice API is preferred for voice input/output with on-device STT/TTS an
   - [Gemma 4 models](https://ollama.com/library/gemma4)
   - [Gemma 3 1B models](https://ollama.com/library/gemma3:1b)
 - [firebase_ai (Firebase AI Logic) Flutter package](https://pub.dev/packages/firebase_ai)
+  - [Live API (bidirectional audio streaming) reference](https://firebase.google.com/docs/ai-logic/get-started-live-api)
 - [flutter_riverpod](https://pub.dev/packages/flutter_riverpod) — state management
 - [go_router](https://pub.dev/packages/go_router) — declarative navigation
 - [record](https://pub.dev/packages/record) — microphone recording
