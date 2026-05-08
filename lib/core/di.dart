@@ -6,6 +6,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
+import '../services/audio/audio_output_service.dart';
 import '../services/camera/camera_provider.dart';
 import '../services/camera/phone_camera_provider.dart';
 import '../services/connectivity/connectivity_service.dart';
@@ -45,9 +46,14 @@ final isOnlineProvider = StreamProvider<bool>((ref) {
   return ref.watch(connectivityServiceProvider).isOnline;
 });
 
-/// On-device text-to-speech.
+/// On-device text-to-speech (used for Tier 2/3 fallback agents).
 final ttsServiceProvider = Provider<TtsService>((ref) {
   return TtsService(FlutterTts());
+});
+
+/// Real-time PCM audio output via SoLoud (used by GeminiVoiceAgent for Tier 1).
+final audioOutputServiceProvider = Provider<AudioOutputService>((ref) {
+  return AudioOutputService();
 });
 
 /// Offline PDF generation and sharing.
@@ -70,5 +76,6 @@ final voiceAgentServiceProvider = Provider<VoiceAgentService>((ref) {
     stt: SpeechToText(),
     tts: FlutterTts(),
     firebaseAI: FirebaseAI.vertexAI(),
+    audioOutput: ref.watch(audioOutputServiceProvider),
   );
 });

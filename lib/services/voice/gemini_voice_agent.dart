@@ -3,6 +3,7 @@ import 'package:firebase_ai/firebase_ai.dart';
 import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 import 'package:firesight/models/inspection_session.dart';
+import 'package:firesight/services/audio/audio_output_service.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
 
 // Vertex AI native-audio model (audio in, audio out + transcription).
@@ -15,13 +16,15 @@ const _kSampleRate = 24000;
 /// - [transcriptStream]: user speech transcriptions (input transcription)
 /// - [responseStream]: agent reply transcriptions (output audio transcription)
 ///
-/// The model outputs native audio PCM which is not played back here —
-/// transcription text is sufficient for the debug screen and TTS playback.
+/// Agent audio replies are played back in real time via [AudioOutputService].
+/// Native audio PCM chunks from the model are fed directly to SoLoud —
+/// no TTS conversion is needed for this tier.
 class GeminiVoiceAgent implements VoiceAgent {
-  GeminiVoiceAgent(this._firebaseAI, {AudioRecorder? recorder})
+  GeminiVoiceAgent(this._firebaseAI, this._audioOutput, {AudioRecorder? recorder})
       : _recorderOverride = recorder;
 
   final FirebaseAI _firebaseAI;
+  final AudioOutputService _audioOutput;
   final AudioRecorder? _recorderOverride;
   AudioRecorder? _recorderInstance;
 
@@ -51,6 +54,9 @@ class GeminiVoiceAgent implements VoiceAgent {
     if (!hasPermission) {
       throw StateError('Microphone permission denied. Please grant it in Settings and try again.');
     }
+
+    await _audioOutput.init();
+    await _audioOutput.startPlayback();
 
     final liveModel = _firebaseAI.liveGenerativeModel(
       model: _kLiveModel,
@@ -107,6 +113,7 @@ class GeminiVoiceAgent implements VoiceAgent {
     await _recorder.stop();
     await _receiveSub?.cancel();
     _receiveSub = null;
+    await _audioOutput.stopPlayback();
     // close() can hang if the socket is already broken; cap at 2 s.
     await _session?.close().timeout(
       const Duration(seconds: 2),
@@ -125,10 +132,20 @@ class GeminiVoiceAgent implements VoiceAgent {
       _transcriptController.add(transcriptText);
     }
 
-    // Agent reply comes as output audio transcription (native audio model).
+    // Agent reply text (for UI display).
     final responseText = msg.outputTranscription?.text;
     if (responseText != null && responseText.isNotEmpty) {
       _responseController.add(responseText);
+    }
+
+    // Agent reply audio — feed PCM chunks directly to the speaker.
+    final parts = msg.modelTurn?.parts;
+    if (parts != null) {
+      for (final part in parts) {
+        if (part is InlineDataPart && part.mimeType.startsWith('audio')) {
+          _audioOutput.addChunk(part.bytes);
+        }
+      }
     }
   }
 

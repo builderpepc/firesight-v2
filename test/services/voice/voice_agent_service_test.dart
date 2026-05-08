@@ -3,6 +3,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:firesight/services/audio/audio_output_service.dart';
 import 'package:firesight/services/connectivity/connectivity_service.dart';
 import 'package:firesight/services/voice/gemini_voice_agent.dart';
 import 'package:firesight/services/voice/voice_agent_service.dart';
@@ -11,6 +12,7 @@ class MockConnectivityService extends Mock implements ConnectivityService {}
 class MockFirebaseAI extends Mock implements FirebaseAI {}
 class MockFlutterTts extends Mock implements FlutterTts {}
 class MockSpeechToText extends Mock implements SpeechToText {}
+class MockAudioOutputService extends Mock implements AudioOutputService {}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -27,6 +29,7 @@ void main() {
       stt: MockSpeechToText(),
       tts: MockFlutterTts(),
       firebaseAI: firebaseAI,
+      audioOutput: MockAudioOutputService(),
     );
   });
 

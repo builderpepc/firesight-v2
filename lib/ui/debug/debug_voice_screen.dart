@@ -72,7 +72,6 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
 
       _responseSub = agent.responseStream.listen((text) {
         if (mounted) setState(() => _responses.add(_LogEntry(text)));
-        ref.read(ttsServiceProvider).speak(text);
       });
 
       _errorSub = agent.errorStream.listen((error) {
