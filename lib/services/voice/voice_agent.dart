@@ -15,5 +15,9 @@ abstract class VoiceAgent {
   /// Stream of agent text responses (for TTS playback).
   Stream<String> get responseStream;
 
+  /// Emits errors that terminate the session (e.g. WebSocket closed).
+  /// Listeners should call [stopListening] and reset UI state on receipt.
+  Stream<Object> get errorStream;
+
   Future<void> dispose();
 }

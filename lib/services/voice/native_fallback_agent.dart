@@ -22,6 +22,9 @@ class NativeFallbackAgent implements VoiceAgent {
   Stream<String> get responseStream => _responseController.stream;
 
   @override
+  Stream<Object> get errorStream => const Stream.empty();
+
+  @override
   Future<void> startListening(InspectionSession session) async {
     // TODO: Initialize Cactus with Gemma 3 1B.
     // Listen via speech_to_text, forward to CactusLM, play responses via flutter_tts.

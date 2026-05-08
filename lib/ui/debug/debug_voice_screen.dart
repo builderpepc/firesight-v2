@@ -27,6 +27,7 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
   final List<_LogEntry> _responses = [];
   StreamSubscription<String>? _transcriptSub;
   StreamSubscription<String>? _responseSub;
+  StreamSubscription<Object>? _errorSub;
   StreamSubscription<bool>? _onlineSub;
 
   @override
@@ -64,21 +65,27 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
         updatedAt: DateTime.now(),
       );
 
-      await agent.startListening(session);
-
+      // Subscribe before startListening to avoid missing early events.
       _transcriptSub = agent.transcriptStream.listen((text) {
-        if (mounted) {
-          setState(() => _transcripts.add(_LogEntry(text)));
-        }
+        if (mounted) setState(() => _transcripts.add(_LogEntry(text)));
       });
 
       _responseSub = agent.responseStream.listen((text) {
-        if (mounted) {
-          setState(() => _responses.add(_LogEntry(text)));
-        }
-        // Play response aloud.
+        if (mounted) setState(() => _responses.add(_LogEntry(text)));
         ref.read(ttsServiceProvider).speak(text);
       });
+
+      _errorSub = agent.errorStream.listen((error) {
+        if (mounted) {
+          setState(() {
+            _isListening = false;
+            _tierLabel = 'Error';
+            _errorMessage = error.toString();
+          });
+        }
+      });
+
+      await agent.startListening(session);
 
       if (mounted) {
         setState(() {
@@ -105,15 +112,17 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
   }
 
   Future<void> _stopListening() async {
-    await _transcriptSub?.cancel();
-    await _responseSub?.cancel();
-    await _agent?.stopListening();
+    // Reset state immediately so the button unlocks regardless of cleanup time.
     if (mounted) {
       setState(() {
         _isListening = false;
         _tierLabel = 'Idle';
       });
     }
+    await _transcriptSub?.cancel();
+    await _responseSub?.cancel();
+    await _errorSub?.cancel();
+    _agent?.stopListening(); // fire-and-forget; cleanup runs in background
   }
 
   @override
@@ -121,6 +130,7 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
     _onlineSub?.cancel();
     _transcriptSub?.cancel();
     _responseSub?.cancel();
+    _errorSub?.cancel();
     _agent?.dispose();
     super.dispose();
   }

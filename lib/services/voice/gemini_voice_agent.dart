@@ -5,13 +5,18 @@ import 'package:record/record.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
 
-const _kLiveModel = 'gemini-2.5-flash-native-audio-preview-12-2025';
+// Vertex AI native-audio model (audio in, audio out + transcription).
+const _kLiveModel = 'gemini-live-2.5-flash-preview-native-audio-09-2025';
 const _kSampleRate = 24000;
 
 /// Tier 1: Firebase AI Gemini Live API (internet required).
 ///
-/// Streams microphone audio to Gemini's Live API and emits transcripts
-/// (user speech) and text responses (agent replies for TTS playback).
+/// Streams microphone audio to Gemini's Live API and emits:
+/// - [transcriptStream]: user speech transcriptions (input transcription)
+/// - [responseStream]: agent reply transcriptions (output audio transcription)
+///
+/// The model outputs native audio PCM which is not played back here —
+/// transcription text is sufficient for the debug screen and TTS playback.
 class GeminiVoiceAgent implements VoiceAgent {
   GeminiVoiceAgent(this._firebaseAI, {AudioRecorder? recorder})
       : _recorderOverride = recorder;
@@ -29,6 +34,7 @@ class GeminiVoiceAgent implements VoiceAgent {
 
   final _transcriptController = StreamController<String>.broadcast();
   final _responseController = StreamController<String>.broadcast();
+  final _errorController = StreamController<Object>.broadcast();
 
   @override
   Stream<String> get transcriptStream => _transcriptController.stream;
@@ -37,19 +43,34 @@ class GeminiVoiceAgent implements VoiceAgent {
   Stream<String> get responseStream => _responseController.stream;
 
   @override
+  Stream<Object> get errorStream => _errorController.stream;
+
+  @override
   Future<void> startListening(InspectionSession session) async {
+    final hasPermission = await _recorder.hasPermission();
+    if (!hasPermission) {
+      throw StateError('Microphone permission denied. Please grant it in Settings and try again.');
+    }
+
     final liveModel = _firebaseAI.liveGenerativeModel(
       model: _kLiveModel,
       systemInstruction: Content.system(_buildSystemInstruction(session)),
       liveGenerationConfig: LiveGenerationConfig(
-        responseModalities: [ResponseModalities.text],
+        responseModalities: [ResponseModalities.audio],
         inputAudioTranscription: AudioTranscriptionConfig(),
+        outputAudioTranscription: AudioTranscriptionConfig(),
       ),
     );
 
     _session = await liveModel.connect();
 
-    _receiveSub = _session!.receive().listen(_handleResponse);
+    _receiveSub = _session!.receive().listen(
+      _handleResponse,
+      onError: (Object error) {
+        _errorController.add(error);
+        stopListening();
+      },
+    );
 
     final audioStream = await _recorder.startStream(
       const RecordConfig(
@@ -61,9 +82,22 @@ class GeminiVoiceAgent implements VoiceAgent {
 
     // Forward each PCM chunk to the live session via sendAudioRealtime.
     // Stored so it can be cancelled in stopListening.
-    _audioSub = audioStream.listen((Uint8List data) {
-      _session?.sendAudioRealtime(InlineDataPart('audio/pcm', data));
-    });
+    // sendAudioRealtime throws synchronously on WebSocket close, so we
+    // catch inside the data handler rather than relying on onError.
+    _audioSub = audioStream.listen(
+      (Uint8List data) {
+        try {
+          _session?.sendAudioRealtime(InlineDataPart('audio/pcm', data));
+        } catch (e) {
+          _errorController.add(e);
+          stopListening();
+        }
+      },
+      onError: (Object error) {
+        _errorController.add(error);
+        stopListening();
+      },
+    );
   }
 
   @override
@@ -73,7 +107,11 @@ class GeminiVoiceAgent implements VoiceAgent {
     await _recorder.stop();
     await _receiveSub?.cancel();
     _receiveSub = null;
-    await _session?.close();
+    // close() can hang if the socket is already broken; cap at 2 s.
+    await _session?.close().timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {},
+    );
     _session = null;
   }
 
@@ -87,10 +125,10 @@ class GeminiVoiceAgent implements VoiceAgent {
       _transcriptController.add(transcriptText);
     }
 
-    final modelTurn = msg.modelTurn;
-    if (modelTurn != null) {
-      final text = modelTurn.parts.whereType<TextPart>().map((p) => p.text).join();
-      if (text.isNotEmpty) _responseController.add(text);
+    // Agent reply comes as output audio transcription (native audio model).
+    final responseText = msg.outputTranscription?.text;
+    if (responseText != null && responseText.isNotEmpty) {
+      _responseController.add(responseText);
     }
   }
 
@@ -119,5 +157,6 @@ ${lines.isEmpty ? 'No observations recorded yet.' : 'Existing observations:\n$li
     await stopListening();
     await _transcriptController.close();
     await _responseController.close();
+    await _errorController.close();
   }
 }

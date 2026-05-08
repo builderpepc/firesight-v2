@@ -69,6 +69,6 @@ final voiceAgentServiceProvider = Provider<VoiceAgentService>((ref) {
     connectivity: ref.watch(connectivityServiceProvider),
     stt: SpeechToText(),
     tts: FlutterTts(),
-    firebaseAI: FirebaseAI.googleAI(),
+    firebaseAI: FirebaseAI.vertexAI(),
   );
 });

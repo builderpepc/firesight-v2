@@ -10,6 +10,13 @@ class HomeScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('FireSight'),
+        actions: [
+          IconButton(
+            tooltip: 'Voice Agent Debug',
+            icon: const Icon(Icons.bug_report_outlined),
+            onPressed: () => context.pushNamed('debug-voice'),
+          ),
+        ],
       ),
       body: const Center(
         child: Column(

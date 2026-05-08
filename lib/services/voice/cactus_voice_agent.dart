@@ -21,6 +21,9 @@ class CactusVoiceAgent implements VoiceAgent {
   Stream<String> get responseStream => _responseController.stream;
 
   @override
+  Stream<Object> get errorStream => const Stream.empty();
+
+  @override
   Future<void> startListening(InspectionSession session) async {
     // TODO: Initialize CactusLM with Gemma 4 model.
     // Requires cactusInit, model loading, and streaming generation.
