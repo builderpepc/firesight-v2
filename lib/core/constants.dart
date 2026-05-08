@@ -1,7 +1,12 @@
 // App-wide constants for FireSight.
 
-/// Model names (Cactus)
+/// Model names
 class ModelNames {
+  // Gemini Live API (Tier 1 — internet required)
+  static const String geminiLive =
+      'gemini-2.5-flash-native-audio-preview-12-2025';
+
+  // Cactus on-device models (Tiers 2 & 3)
   static const String gemma4 = 'gemma-4b-it';
   static const String gemma3 = 'gemma-3-1b-it';
 }

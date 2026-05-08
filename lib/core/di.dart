@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:firebase_ai/firebase_ai.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:path_provider/path_provider.dart';
@@ -68,5 +69,6 @@ final voiceAgentServiceProvider = Provider<VoiceAgentService>((ref) {
     connectivity: ref.watch(connectivityServiceProvider),
     stt: SpeechToText(),
     tts: FlutterTts(),
+    firebaseAI: FirebaseAI.googleAI(),
   );
 });
