@@ -36,6 +36,9 @@ class GeminiVoiceAgent implements VoiceAgent {
   StreamSubscription<LiveServerResponse>? _receiveSub;
   StreamSubscription<Uint8List>? _audioSub;
 
+  // Accumulates partial outputTranscription chunks until turnComplete.
+  final _responseBuffer = StringBuffer();
+
   final _transcriptController = StreamController<String>.broadcast();
   final _responseController = StreamController<String>.broadcast();
   final _errorController = StreamController<Object>.broadcast();
@@ -113,6 +116,7 @@ class GeminiVoiceAgent implements VoiceAgent {
     await _recorder.stop();
     await _receiveSub?.cancel();
     _receiveSub = null;
+    _responseBuffer.clear();
     await _audioOutput.stopPlayback();
     // close() can hang if the socket is already broken; cap at 2 s.
     await _session?.close().timeout(
@@ -132,10 +136,10 @@ class GeminiVoiceAgent implements VoiceAgent {
       _transcriptController.add(transcriptText);
     }
 
-    // Agent reply text (for UI display).
+    // Accumulate partial output transcription; emit as one entry per turn.
     final responseText = msg.outputTranscription?.text;
     if (responseText != null && responseText.isNotEmpty) {
-      _responseController.add(responseText);
+      _responseBuffer.write(responseText);
     }
 
     // Agent reply audio — feed PCM chunks directly to the speaker.
@@ -146,6 +150,13 @@ class GeminiVoiceAgent implements VoiceAgent {
           _audioOutput.addChunk(part.bytes);
         }
       }
+    }
+
+    // Emit the complete response text when Gemini's turn ends.
+    if (msg.turnComplete == true) {
+      final full = _responseBuffer.toString().trim();
+      if (full.isNotEmpty) _responseController.add(full);
+      _responseBuffer.clear();
     }
   }
 
