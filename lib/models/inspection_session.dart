@@ -16,6 +16,11 @@ class InspectionSession extends Equatable {
     this.observations = const [],
     this.buildingDocuments = const [],
     this.floorplanPath,
+    this.zipCode,
+    this.buildingType,
+    this.status,
+    this.inspectorId,
+    this.riskLevel,
   });
 
   final String id;
@@ -32,6 +37,20 @@ class InspectionSession extends Equatable {
   @JsonKey(name: 'floorplan_path')
   final String? floorplanPath;
 
+  @JsonKey(name: 'zip_code')
+  final String? zipCode;
+
+  @JsonKey(name: 'building_type')
+  final String? buildingType;
+
+  final String? status;
+
+  @JsonKey(name: 'inspector_id')
+  final String? inspectorId;
+
+  @JsonKey(name: 'risk_level')
+  final String? riskLevel;
+
   InspectionSession copyWith({
     String? id,
     String? name,
@@ -40,6 +59,11 @@ class InspectionSession extends Equatable {
     List<Observation>? observations,
     List<BuildingDocument>? buildingDocuments,
     String? floorplanPath,
+    String? zipCode,
+    String? buildingType,
+    String? status,
+    String? inspectorId,
+    String? riskLevel,
   }) {
     return InspectionSession(
       id: id ?? this.id,
@@ -49,6 +73,11 @@ class InspectionSession extends Equatable {
       observations: observations ?? this.observations,
       buildingDocuments: buildingDocuments ?? this.buildingDocuments,
       floorplanPath: floorplanPath ?? this.floorplanPath,
+      zipCode: zipCode ?? this.zipCode,
+      buildingType: buildingType ?? this.buildingType,
+      status: status ?? this.status,
+      inspectorId: inspectorId ?? this.inspectorId,
+      riskLevel: riskLevel ?? this.riskLevel,
     );
   }
 
@@ -66,5 +95,10 @@ class InspectionSession extends Equatable {
         observations,
         buildingDocuments,
         floorplanPath,
+        zipCode,
+        buildingType,
+        status,
+        inspectorId,
+        riskLevel,
       ];
 }

@@ -1,12 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:path/path.dart';
 import 'package:uuid/uuid.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/models/session_metadata.dart';
 import 'package:firesight/core/constants.dart';
-import 'session_storage_interface.dart';
+import 'session_storage.dart';
 
-/// Reads and writes sessions as directories: sessions/<id>/session.json
+/// Reads and writes sessions as directories: sessions/`<id>`/session.json
 class LocalSessionStorage implements SessionStorage {
   LocalSessionStorage(String basePath)
       : _sessionsDir = Directory('$basePath/${AppPaths.sessions}'),
@@ -20,6 +21,21 @@ class LocalSessionStorage implements SessionStorage {
   Future<void> ensureInitialized() async {
     await _sessionsDir.create(recursive: true);
     await _photosDir.create(recursive: true);
+  }
+
+  @override
+  Future<String> saveImage(String tempPath) async {
+    await ensureInitialized();
+    final tempFile = File(tempPath);
+    if (!tempFile.existsSync()) {
+      throw Exception('Source file does not exist: $tempPath');
+    }
+
+    final String ext = extension(tempPath);
+    final String fileName = '${_uuid.v4()}$ext';
+    final String permanentPath = join(_photosDir.path, fileName);
+    await tempFile.copy(permanentPath);
+    return permanentPath;
   }
 
   @override
@@ -96,6 +112,17 @@ class LocalSessionStorage implements SessionStorage {
     final sessionDir = Directory('${_sessionsDir.path}/$id');
     if (sessionDir.existsSync()) {
       await sessionDir.delete(recursive: true);
+    }
+  }
+
+  @override
+  Future<void> deleteAllSessions() async {
+    if (_sessionsDir.existsSync()) {
+      for (final entity in _sessionsDir.listSync()) {
+        if (entity is Directory) {
+          await entity.delete(recursive: true);
+        }
+      }
     }
   }
 

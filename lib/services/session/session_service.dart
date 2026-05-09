@@ -33,4 +33,14 @@ class SessionService {
   Future<void> deleteSession(String id) async {
     await _storage.deleteSession(id);
   }
+
+  /// Deletes all sessions.
+  Future<void> deleteAllSessions() async {
+    await _storage.deleteAllSessions();
+  }
+
+  /// Saves an image file permanently and returns the new path.
+  Future<String> saveImage(String tempPath) async {
+    return _storage.saveImage(tempPath);
+  }
 }

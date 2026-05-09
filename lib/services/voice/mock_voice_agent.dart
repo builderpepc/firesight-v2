@@ -15,7 +15,6 @@ class MockVoiceAgent implements VoiceAgent {
   @override
   Stream<String> get responseStream => _responseController.stream;
 
-  @override
   void setToolHandlers({
     Future<void> Function()? onUploadFloorplan,
     Future<void> Function(String notes)? onMarkAsset,

@@ -47,12 +47,33 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
     final picker = ImagePicker();
     final image = await picker.pickImage(source: ImageSource.gallery);
     if (image != null && _session != null) {
-      final updatedSession = _session!.copyWith(floorplanPath: image.path);
       final service = await ref.read(sessionServiceProvider.future);
+      final permanentPath = await service.saveImage(image.path);
+      final updatedSession = _session!.copyWith(floorplanPath: permanentPath);
       await service.saveSession(updatedSession);
       setState(() {
         _session = updatedSession;
       });
+    }
+  }
+
+  Future<void> _saveSession() async {
+    if (_session == null) return;
+
+    try {
+      final service = await ref.read(sessionServiceProvider.future);
+      await service.saveSession(_session!);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Inspection saved successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save inspection: $e')),
+        );
+      }
     }
   }
 
@@ -91,11 +112,14 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
     );
 
     if (note != null) {
+      final service = await ref.read(sessionServiceProvider.future);
+      final permanentPath = await service.saveImage(photo.path);
+      
       final observation = Observation(
         id: const Uuid().v4(),
         timestamp: DateTime.now(),
         text: note,
-        photoFileRef: photo.path,
+        photoFileRef: permanentPath,
         floorplanX: x,
         floorplanY: y,
       );
@@ -104,7 +128,6 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
         observations: [..._session!.observations, observation],
       );
 
-      final service = await ref.read(sessionServiceProvider.future);
       await service.saveSession(updatedSession);
       setState(() {
         _session = updatedSession;
@@ -165,6 +188,11 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
         title: Text(_session!.name),
         actions: [
           IconButton(
+            icon: const Icon(Icons.save),
+            onPressed: _saveSession,
+            tooltip: 'Save Inspection',
+          ),
+          IconButton(
             icon: const Icon(Icons.map),
             onPressed: _pickFloorplan,
             tooltip: 'Add Floorplan',
@@ -194,6 +222,16 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
               onTap: _addObservationAt,
               onObservationTap: _showObservationDetails,
             ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () async {
+          await _saveSession();
+          if (context.mounted) {
+            Navigator.pop(context);
+          }
+        },
+        icon: const Icon(Icons.check),
+        label: const Text('Save & Exit'),
+      ),
     );
   }
 }
