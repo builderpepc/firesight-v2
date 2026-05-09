@@ -1,8 +1,6 @@
-import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../services/camera/camera_provider.dart';
@@ -16,11 +14,6 @@ import '../services/session/session_export.dart';
 import '../services/tts/tts_service.dart';
 import '../services/voice/voice_agent_service.dart';
 import '../models/session_metadata.dart';
-
-/// Base path for all app documents (async — resolved once at startup).
-final appDocsDirProvider = FutureProvider<Directory>((ref) async {
-  return getApplicationDocumentsDirectory();
-});
 
 /// Session storage (database).
 final sessionStorageProvider = FutureProvider<SessionStorage>((ref) async {
@@ -41,10 +34,10 @@ final sessionsProvider = FutureProvider<List<SessionMetadata>>((ref) async {
   return service.listSessions();
 });
 
-/// Session export/import service.
+/// Session export service.
 final sessionExportProvider = FutureProvider<SessionExport>((ref) async {
-  final appDir = await ref.watch(appDocsDirProvider.future);
-  return SessionExport(appDir);
+  final storage = await ref.watch(sessionStorageProvider.future);
+  return SessionExport(storage);
 });
 
 /// Network connectivity (interface-level).

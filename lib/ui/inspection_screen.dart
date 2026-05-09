@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -6,6 +8,8 @@ import 'package:uuid/uuid.dart';
 import 'package:firesight/core/di.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/models/observation.dart';
+import 'package:firesight/services/voice/mock_voice_agent.dart';
+import 'package:firesight/services/voice/voice_agent.dart';
 import 'package:firesight/ui/widgets/floorplan_viewer.dart';
 
 class InspectionScreen extends ConsumerStatefulWidget {
@@ -19,6 +23,7 @@ class InspectionScreen extends ConsumerStatefulWidget {
 class _InspectionScreenState extends ConsumerState<InspectionScreen> {
   InspectionSession? _session;
   bool _isLoading = true;
+  bool _pinModeEnabled = false;
   late final TextEditingController _nameController;
   late final TextEditingController _inspectorController;
 
@@ -27,7 +32,21 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
     super.initState();
     _nameController = TextEditingController();
     _inspectorController = TextEditingController();
-    _loadSession();
+    if (widget.sessionId == null) {
+      // New session: construct in-memory only; persist on first save so back
+      // navigation without saving leaves no orphan row.
+      final now = DateTime.now();
+      _session = InspectionSession(
+        id: const Uuid().v4(),
+        name: 'New Inspection ${now.toLocal()}',
+        createdAt: now,
+        updatedAt: now,
+      );
+      _isLoading = false;
+      _nameController.text = _session!.name;
+    } else {
+      _loadExistingSession();
+    }
   }
 
   @override
@@ -37,24 +56,15 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
     super.dispose();
   }
 
-  Future<void> _loadSession() async {
+  Future<void> _loadExistingSession() async {
     final service = await ref.read(sessionServiceProvider.future);
-    if (widget.sessionId != null) {
-      final session = await service.loadSession(widget.sessionId!);
-      setState(() {
-        _session = session;
-        _isLoading = false;
-      });
-      _syncControllersFromSession();
-    } else {
-      final session = await service
-          .createSession('New Inspection ${DateTime.now().toLocal()}');
-      setState(() {
-        _session = session;
-        _isLoading = false;
-      });
-      _syncControllersFromSession();
-    }
+    final session = await service.loadSession(widget.sessionId!);
+    if (!mounted) return;
+    setState(() {
+      _session = session;
+      _isLoading = false;
+    });
+    _syncControllersFromSession();
   }
 
   Future<void> _pickFloorplan() async {
@@ -174,6 +184,52 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
     setState(() {});
   }
 
+  Future<void> _openVoiceSession() async {
+    if (_session == null) return;
+
+    final voiceService = ref.read(voiceAgentServiceProvider);
+    final VoiceAgent agent;
+    try {
+      agent = voiceService.currentAgent;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Voice agent unavailable: $e')),
+        );
+      }
+      return;
+    }
+
+    if (agent is MockVoiceAgent) {
+      agent.setToolHandlers(
+        onUploadFloorplan: () async {
+          await _pickFloorplan();
+        },
+        onMarkAsset: (notes) async {
+          if (_session == null) return;
+          final observation = Observation(
+            id: const Uuid().v4(),
+            timestamp: DateTime.now(),
+            text: notes,
+          );
+          await _persistSession(_session!.copyWith(
+            observations: [..._session!.observations, observation],
+          ));
+          if (mounted) setState(() {});
+        },
+      );
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _VoiceSessionSheet(
+        agent: agent,
+        session: _session!,
+      ),
+    );
+  }
+
   Future<void> _openFocusedFloorplan() async {
     if (_session?.floorplanPath == null) {
       return;
@@ -181,44 +237,65 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
 
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) => Scaffold(
-          appBar: AppBar(
-            title: const Text('Floorplan Focus'),
-          ),
-          body: SafeArea(
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Text(
-                    'Pinch to zoom, drag to pan, and tap the floorplan to add a photo note.',
-                    style: Theme.of(context).textTheme.bodyMedium,
+        builder: (_) => StatefulBuilder(
+          builder: (context, setLocalState) {
+            return Scaffold(
+              appBar: AppBar(
+                title: const Text('Floorplan Focus'),
+                actions: [
+                  IconButton(
+                    icon: Icon(_pinModeEnabled
+                        ? Icons.add_location_alt
+                        : Icons.add_location_alt_outlined),
+                    tooltip: _pinModeEnabled
+                        ? 'Exit pin placement mode'
+                        : 'Enter pin placement mode',
+                    onPressed: () => setLocalState(() {
+                      _pinModeEnabled = !_pinModeEnabled;
+                    }),
                   ),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
-                      child: FloorplanViewer(
-                        floorplanPath: _session!.floorplanPath!,
-                        observations: _session!.observations,
-                        onTap: (x, y) async {
-                          await _addObservationAt(x, y);
-                          if (mounted) {
-                            setState(() {});
-                          }
-                        },
-                        onObservationTap: _showObservationDetails,
-                        minScale: 0.8,
-                        maxScale: 8,
+                ],
+              ),
+              body: SafeArea(
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      child: Text(
+                        _pinModeEnabled
+                            ? 'Pin mode: tap the floorplan to add a photo note.'
+                            : 'Pinch to zoom and drag to pan. Tap a pin to view its note. '
+                                'Tap the location icon to enter pin placement mode.',
+                        style: Theme.of(context).textTheme.bodyMedium,
                       ),
                     ),
-                  ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(20),
+                          child: FloorplanViewer(
+                            floorplanPath: _session!.floorplanPath!,
+                            observations: _session!.observations,
+                            pinPlacementMode: _pinModeEnabled,
+                            onTap: (x, y) async {
+                              await _addObservationAt(x, y);
+                              if (mounted) {
+                                setLocalState(() {});
+                              }
+                            },
+                            onObservationTap: _showObservationDetails,
+                            minScale: 0.8,
+                            maxScale: 8,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -357,6 +434,11 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
       appBar: AppBar(
         title: Text(_session!.name),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.mic),
+            onPressed: _openVoiceSession,
+            tooltip: 'Voice Agent',
+          ),
           IconButton(
             icon: const Icon(Icons.save),
             onPressed: _saveSession,
@@ -611,6 +693,148 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
                       onTap: () => _showObservationDetails(observation),
                     );
                   },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _VoiceMessage {
+  _VoiceMessage(this.text, {required this.fromUser});
+  final String text;
+  final bool fromUser;
+}
+
+class _VoiceSessionSheet extends StatefulWidget {
+  const _VoiceSessionSheet({required this.agent, required this.session});
+  final VoiceAgent agent;
+  final InspectionSession session;
+
+  @override
+  State<_VoiceSessionSheet> createState() => _VoiceSessionSheetState();
+}
+
+class _VoiceSessionSheetState extends State<_VoiceSessionSheet> {
+  final List<_VoiceMessage> _messages = [];
+  StreamSubscription<String>? _transcriptSub;
+  StreamSubscription<String>? _responseSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _transcriptSub = widget.agent.transcriptStream.listen((text) {
+      if (!mounted) return;
+      setState(() => _messages.add(_VoiceMessage(text, fromUser: true)));
+    });
+    _responseSub = widget.agent.responseStream.listen((text) {
+      if (!mounted) return;
+      setState(() => _messages.add(_VoiceMessage(text, fromUser: false)));
+    });
+    widget.agent.startListening(widget.session);
+  }
+
+  @override
+  void dispose() {
+    _transcriptSub?.cancel();
+    _responseSub?.cancel();
+    widget.agent.stopListening();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mock = widget.agent is MockVoiceAgent
+        ? widget.agent as MockVoiceAgent
+        : null;
+
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.mic),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Voice Agent',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    tooltip: 'Close',
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 120, maxHeight: 320),
+              child: _messages.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(
+                        child: Text(
+                          'Listening…',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.all(12),
+                      itemCount: _messages.length,
+                      itemBuilder: (context, i) {
+                        final m = _messages[i];
+                        return Align(
+                          alignment: m.fromUser
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: m.fromUser
+                                  ? Theme.of(context).colorScheme.primaryContainer
+                                  : Theme.of(context).colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(m.text),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            if (kDebugMode && mock != null)
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.upload_file),
+                      label: const Text('Demo: upload floorplan'),
+                      onPressed: () => mock.simulateCommand('upload floorplan'),
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.push_pin_outlined),
+                      label: const Text('Demo: mark asset'),
+                      onPressed: () => mock.simulateCommand('mark asset'),
+                    ),
+                  ],
                 ),
               ),
           ],

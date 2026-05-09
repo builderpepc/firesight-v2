@@ -2,6 +2,13 @@ import 'dart:async';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
 
+/// Dev-mode placeholder voice agent. Used as the active agent until real
+/// tier selection (Gemini / Cactus / NativeFallback) is implemented in
+/// [VoiceAgentService.currentAgent]. Exposes [simulateCommand] so the in-app
+/// voice contract can be exercised without real audio input.
+///
+/// This is intentionally kept in `lib/` (not `test/`) because it is the
+/// runtime voice agent the app currently relies on.
 class MockVoiceAgent implements VoiceAgent {
   final _transcriptController = StreamController<String>.broadcast();
   final _responseController = StreamController<String>.broadcast();
