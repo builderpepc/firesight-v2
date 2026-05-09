@@ -9,6 +9,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:go_router/go_router.dart';
 
 class MockGoRouter extends Mock implements GoRouter {}
+
 class MockSessionService extends Mock implements SessionService {}
 
 void main() {
@@ -27,6 +28,7 @@ void main() {
           name: 'Session 1',
           createdAt: now,
           updatedAt: now,
+          inspectorId: 'Inspector Diaz',
         ),
         SessionMetadata(
           id: '2',
@@ -49,11 +51,14 @@ void main() {
 
       expect(find.text('Session 1'), findsOneWidget);
       expect(find.text('Session 2'), findsOneWidget);
+      expect(find.textContaining('Inspector: Inspector Diaz'), findsOneWidget);
       expect(find.byType(ListTile), findsNWidgets(2));
       expect(find.byIcon(Icons.delete_outline), findsNWidgets(2));
     });
 
-    testWidgets('shows confirmation dialog and calls deleteSession when confirmed', (tester) async {
+    testWidgets(
+        'shows confirmation dialog and calls deleteSession when confirmed',
+        (tester) async {
       final now = DateTime.now();
       final session = SessionMetadata(
         id: '1',
@@ -62,7 +67,8 @@ void main() {
         updatedAt: now,
       );
 
-      when(() => mockSessionService.deleteSession('1')).thenAnswer((_) async => {});
+      when(() => mockSessionService.deleteSession('1'))
+          .thenAnswer((_) async => {});
 
       await tester.pumpWidget(
         ProviderScope(
@@ -80,7 +86,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Delete Inspection'), findsOneWidget);
-      expect(find.text('Are you sure you want to delete "Session 1"?'), findsOneWidget);
+      expect(find.text('Are you sure you want to delete "Session 1"?'),
+          findsOneWidget);
 
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
@@ -88,8 +95,11 @@ void main() {
       verify(() => mockSessionService.deleteSession('1')).called(1);
     });
 
-    testWidgets('shows confirmation dialog and calls deleteAllSessions when confirmed', (tester) async {
-      when(() => mockSessionService.deleteAllSessions()).thenAnswer((_) async => {});
+    testWidgets(
+        'shows confirmation dialog and calls deleteAllSessions when confirmed',
+        (tester) async {
+      when(() => mockSessionService.deleteAllSessions())
+          .thenAnswer((_) async => {});
 
       await tester.pumpWidget(
         ProviderScope(
@@ -144,6 +154,21 @@ void main() {
 
       expect(find.text('New Inspection'), findsOneWidget);
       expect(find.byIcon(Icons.add), findsOneWidget);
+    });
+
+    testWidgets('sort action is present', (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sessionsProvider.overrideWith((ref) => []),
+          ],
+          child: const MaterialApp(
+            home: HomeScreen(),
+          ),
+        ),
+      );
+
+      expect(find.byIcon(Icons.sort), findsOneWidget);
     });
   });
 }

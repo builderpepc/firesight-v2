@@ -5,6 +5,8 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:firesight/models/inspection_session.dart';
+import 'package:firesight/models/observation.dart';
+import 'package:firesight/models/building_document.dart';
 import 'package:firesight/models/session_metadata.dart';
 import 'session_storage.dart';
 
@@ -83,7 +85,8 @@ class DatabaseSessionStorage implements SessionStorage {
       whereArgs.add(riskLevel);
     }
 
-    final whereString = whereClauses.isEmpty ? null : whereClauses.join(' AND ');
+    final whereString =
+        whereClauses.isEmpty ? null : whereClauses.join(' AND ');
 
     final List<Map<String, dynamic>> maps = await _db!.query(
       _tableName,
@@ -132,7 +135,15 @@ class DatabaseSessionStorage implements SessionStorage {
     if (maps.isEmpty) return null;
 
     final String dataJson = maps[0]['data'];
-    return InspectionSession.fromJson(jsonDecode(dataJson));
+    final session = InspectionSession.fromJson(
+      jsonDecode(dataJson) as Map<String, dynamic>,
+    );
+    final absoluteSession = _applyPathTransformation(session, _toAbsolutePath);
+    final normalizedSession = await _normalizeSessionImages(absoluteSession);
+    if (normalizedSession != absoluteSession) {
+      await _saveNormalizedSession(normalizedSession);
+    }
+    return normalizedSession;
   }
 
   @override
@@ -155,19 +166,26 @@ class DatabaseSessionStorage implements SessionStorage {
   @override
   Future<void> saveSession(InspectionSession session) async {
     await ensureInitialized();
+    final normalizedSession = await _normalizeSessionImages(session);
+    await _saveNormalizedSession(normalizedSession);
+  }
 
-    final dataJson = jsonEncode(session.toJson());
-    
+  Future<void> _saveNormalizedSession(
+      InspectionSession normalizedSession) async {
+    final storageSession =
+        _applyPathTransformation(normalizedSession, _toRelativePath);
+    final dataJson = jsonEncode(storageSession.toJson());
+
     final row = {
-      'id': session.id,
-      'name': session.name,
-      'createdAt': session.createdAt.toIso8601String(),
-      'updatedAt': session.updatedAt.toIso8601String(),
-      'zipCode': session.zipCode,
-      'buildingType': session.buildingType,
-      'status': session.status,
-      'inspectorId': session.inspectorId,
-      'riskLevel': session.riskLevel,
+      'id': normalizedSession.id,
+      'name': normalizedSession.name,
+      'createdAt': normalizedSession.createdAt.toIso8601String(),
+      'updatedAt': normalizedSession.updatedAt.toIso8601String(),
+      'zipCode': normalizedSession.zipCode,
+      'buildingType': normalizedSession.buildingType,
+      'status': normalizedSession.status,
+      'inspectorId': normalizedSession.inspectorId,
+      'riskLevel': normalizedSession.riskLevel,
       'data': dataJson,
     };
 
@@ -181,6 +199,10 @@ class DatabaseSessionStorage implements SessionStorage {
   @override
   Future<void> deleteSession(String id) async {
     await ensureInitialized();
+    final session = await loadSession(id);
+    if (session != null) {
+      await _deleteSessionAssets(session);
+    }
     await _db!.delete(
       _tableName,
       where: 'id = ?',
@@ -191,13 +213,20 @@ class DatabaseSessionStorage implements SessionStorage {
   @override
   Future<void> deleteAllSessions() async {
     await ensureInitialized();
+    final sessions = await _db!.query(_tableName, columns: ['data']);
+    for (final row in sessions) {
+      final session = InspectionSession.fromJson(
+        jsonDecode(row['data'] as String) as Map<String, dynamic>,
+      );
+      await _deleteSessionAssets(session);
+    }
     await _db!.delete(_tableName);
   }
 
   @override
   Future<String> saveImage(String tempPath) async {
     await ensureInitialized();
-    
+
     final File tempFile = File(tempPath);
     if (!await tempFile.exists()) {
       throw Exception('Source file does not exist: $tempPath');
@@ -206,8 +235,114 @@ class DatabaseSessionStorage implements SessionStorage {
     final String ext = extension(tempPath);
     final String fileName = '${_uuid.v4()}$ext';
     final String permanentPath = join(_photosDir!.path, fileName);
-    
+
     await tempFile.copy(permanentPath);
     return permanentPath;
+  }
+
+  Future<void> _deleteSessionAssets(InspectionSession session) async {
+    final filePaths = <String>{
+      if (session.floorplanPath != null) _toAbsolutePath(session.floorplanPath)!,
+      ...session.observations
+          .where((observation) => observation.photoFileRef != null)
+          .map((observation) => _toAbsolutePath(observation.photoFileRef)!),
+      ...session.buildingDocuments
+          .map((doc) => _toAbsolutePath(doc.filePath)!),
+    };
+
+    for (final path in filePaths) {
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    }
+  }
+
+  Future<InspectionSession> _normalizeSessionImages(
+    InspectionSession session,
+  ) async {
+    final floorplanPath = await _ensureManagedImage(session.floorplanPath);
+    final observations = <Observation>[];
+
+    for (final observation in session.observations) {
+      observations.add(
+        observation.copyWith(
+          photoFileRef: await _ensureManagedImage(observation.photoFileRef),
+        ),
+      );
+    }
+
+    final buildingDocuments = <BuildingDocument>[];
+    for (final doc in session.buildingDocuments) {
+      buildingDocuments.add(
+        doc.copyWith(
+          filePath: await _ensureManagedImage(doc.filePath) ?? doc.filePath,
+        ),
+      );
+    }
+
+    return session.copyWith(
+      floorplanPath: floorplanPath,
+      observations: observations,
+      buildingDocuments: buildingDocuments,
+    );
+  }
+
+  Future<String?> _ensureManagedImage(String? sourcePath) async {
+    if (sourcePath == null || sourcePath.isEmpty) {
+      return sourcePath;
+    }
+
+    final absolutePath = _toAbsolutePath(sourcePath)!;
+    final sourceFile = File(absolutePath);
+    if (!await sourceFile.exists()) {
+      return sourcePath;
+    }
+
+    final isManaged = dirname(absolutePath) == _photosDir!.path;
+    if (isManaged) {
+      return absolutePath;
+    }
+
+    final ext = extension(absolutePath);
+    final fileName = '${_uuid.v4()}$ext';
+    final permanentPath = join(_photosDir!.path, fileName);
+    await sourceFile.copy(permanentPath);
+    return permanentPath;
+  }
+
+  InspectionSession _applyPathTransformation(
+    InspectionSession session,
+    String? Function(String?) transform,
+  ) {
+    return session.copyWith(
+      floorplanPath: transform(session.floorplanPath),
+      observations: session.observations.map((obs) {
+        return obs.copyWith(
+          photoFileRef: transform(obs.photoFileRef),
+        );
+      }).toList(),
+      buildingDocuments: session.buildingDocuments.map((doc) {
+        return doc.copyWith(
+          filePath: transform(doc.filePath) ?? doc.filePath,
+        );
+      }).toList(),
+    );
+  }
+
+  String? _toRelativePath(String? path) {
+    if (path == null || path.isEmpty) return path;
+    if (isAbsolute(path) && dirname(path) == _photosDir!.path) {
+      return basename(path);
+    }
+    return path;
+  }
+
+  String? _toAbsolutePath(String? path) {
+    if (path == null || path.isEmpty) return path;
+    if (!isAbsolute(path)) {
+      return join(_photosDir!.path, path);
+    }
+    return path;
   }
 }

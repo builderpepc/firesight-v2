@@ -36,6 +36,26 @@ class Observation extends Equatable {
 
   Map<String, dynamic> toJson() => _$ObservationToJson(this);
 
+  Observation copyWith({
+    String? id,
+    DateTime? timestamp,
+    String? text,
+    String? photoFileRef,
+    String? response,
+    double? floorplanX,
+    double? floorplanY,
+  }) {
+    return Observation(
+      id: id ?? this.id,
+      timestamp: timestamp ?? this.timestamp,
+      text: text ?? this.text,
+      photoFileRef: photoFileRef ?? this.photoFileRef,
+      response: response ?? this.response,
+      floorplanX: floorplanX ?? this.floorplanX,
+      floorplanY: floorplanY ?? this.floorplanY,
+    );
+  }
+
   @override
   List<Object?> get props => [
         id,

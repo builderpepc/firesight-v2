@@ -1,21 +1,54 @@
+import 'package:firesight/core/di.dart';
+import 'package:firesight/models/session_metadata.dart';
+import 'package:firesight/services/session/session_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:firesight/core/di.dart';
-import 'package:firesight/models/session_metadata.dart';
 
 /// Home screen showing recent inspection sessions.
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  static const Map<SessionSortOption, String> _sortLabels = {
+    SessionSortOption.updatedAtDesc: 'Last Updated',
+    SessionSortOption.createdAtDesc: 'Created Time',
+    SessionSortOption.nameAsc: 'Name',
+    SessionSortOption.inspectorAsc: 'Inspector',
+  };
+
+  SessionSortOption _sort = SessionSortOption.updatedAtDesc;
+
+  @override
+  Widget build(BuildContext context) {
     final sessionsAsync = ref.watch(sessionsProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('FireSight'),
         actions: [
+          PopupMenuButton<SessionSortOption>(
+            initialValue: _sort,
+            tooltip: 'Sort Sessions',
+            onSelected: (value) {
+              setState(() {
+                _sort = value;
+              });
+            },
+            itemBuilder: (context) => _sortLabels.entries
+                .map(
+                  (entry) => PopupMenuItem<SessionSortOption>(
+                    value: entry.key,
+                    child: Text('Sort: ${entry.value}'),
+                  ),
+                )
+                .toList(),
+            icon: const Icon(Icons.sort),
+          ),
           IconButton(
             icon: const Icon(Icons.file_upload),
             onPressed: () => _exportSessions(context, ref),
@@ -35,7 +68,8 @@ class HomeScreen extends ConsumerWidget {
       ),
       body: sessionsAsync.when(
         data: (sessions) {
-          if (sessions.isEmpty) {
+          final sortedSessions = _sortSessions(sessions);
+          if (sortedSessions.isEmpty) {
             return const Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -49,15 +83,15 @@ class HomeScreen extends ConsumerWidget {
           }
 
           return ListView.builder(
-            itemCount: sessions.length,
+            itemCount: sortedSessions.length,
             itemBuilder: (context, index) {
-              final session = sessions[index];
+              final session = sortedSessions[index];
               return ListTile(
                 leading: const CircleAvatar(
                   child: Icon(Icons.description),
                 ),
                 title: Text(session.name),
-                subtitle: Text('Last updated: ${session.updatedAt.toLocal()}'),
+                subtitle: Text(_buildSessionSubtitle(session)),
                 trailing: IconButton(
                   icon: const Icon(Icons.delete_outline, color: Colors.red),
                   onPressed: () => _deleteSession(context, ref, session),
@@ -138,7 +172,8 @@ class HomeScreen extends ConsumerWidget {
       builder: (context) => AlertDialog(
         title: const Text('Delete All Inspections'),
         content: const Text(
-            'Are you sure you want to delete ALL inspection sessions? This cannot be undone.'),
+          'Are you sure you want to delete ALL inspection sessions? This cannot be undone.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -197,5 +232,37 @@ class HomeScreen extends ConsumerWidget {
         );
       }
     }
+  }
+
+  List<SessionMetadata> _sortSessions(List<SessionMetadata> sessions) {
+    final sortedSessions = [...sessions];
+    sortedSessions.sort((a, b) {
+      switch (_sort) {
+        case SessionSortOption.updatedAtDesc:
+          return b.updatedAt.compareTo(a.updatedAt);
+        case SessionSortOption.createdAtDesc:
+          return b.createdAt.compareTo(a.createdAt);
+        case SessionSortOption.nameAsc:
+          return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        case SessionSortOption.inspectorAsc:
+          final inspectorCompare = (a.inspectorId ?? '')
+              .toLowerCase()
+              .compareTo((b.inspectorId ?? '').toLowerCase());
+          if (inspectorCompare != 0) {
+            return inspectorCompare;
+          }
+          return b.updatedAt.compareTo(a.updatedAt);
+      }
+    });
+    return sortedSessions;
+  }
+
+  String _buildSessionSubtitle(SessionMetadata session) {
+    final lines = <String>[];
+    if ((session.inspectorId ?? '').trim().isNotEmpty) {
+      lines.add('Inspector: ${session.inspectorId!.trim()}');
+    }
+    lines.add('Last updated: ${session.updatedAt.toLocal()}');
+    return lines.join('\n');
   }
 }
