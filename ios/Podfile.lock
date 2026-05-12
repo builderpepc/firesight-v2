@@ -109,9 +109,6 @@ PODS:
     - CwlCatchException
     - Flutter
     - FlutterMacOS
-  - sqflite_darwin (0.0.4):
-    - Flutter
-    - FlutterMacOS
 
 DEPENDENCIES:
   - cactus (from `.symlinks/plugins/cactus/ios`)
@@ -132,7 +129,6 @@ DEPENDENCIES:
   - record_ios (from `.symlinks/plugins/record_ios/ios`)
   - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
   - speech_to_text (from `.symlinks/plugins/speech_to_text/darwin`)
-  - sqflite_darwin (from `.symlinks/plugins/sqflite_darwin/darwin`)
 
 SPEC REPOS:
   trunk:
@@ -190,8 +186,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
   speech_to_text:
     :path: ".symlinks/plugins/speech_to_text/darwin"
-  sqflite_darwin:
-    :path: ".symlinks/plugins/sqflite_darwin/darwin"
 
 SPEC CHECKSUMS:
   AppCheckCore: cc8fd0a3a230ddd401f326489c99990b013f0c4f
@@ -228,7 +222,6 @@ SPEC CHECKSUMS:
   record_ios: 412daca2350b228e698fffcd08f1f94ceb1e3844
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
   speech_to_text: 3b313d98516d3d0406cea424782ec25470c59d19
-  sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0
 
 PODFILE CHECKSUM: ea66c918c9e1f3f3239755991483926bea683399
 

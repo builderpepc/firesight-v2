@@ -7,8 +7,7 @@ import 'package:firesight/models/session_metadata.dart';
 import 'package:firesight/services/session/session_storage.dart';
 
 /// Loads sessions through [SessionStorage] and writes them to a ZIP archive.
-/// Storage-backend agnostic: works with the SQLite-backed storage as well as
-/// any other implementation of the [SessionStorage] interface.
+/// Storage-backend agnostic via the [SessionStorage] interface.
 ///
 /// Archive layout per session:
 ///   `<sessionId>/session.json`        — full session JSON
