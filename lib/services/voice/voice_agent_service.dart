@@ -1,6 +1,7 @@
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:firesight/services/connectivity/connectivity_service.dart';
+import 'package:firesight/services/voice/mock_voice_agent.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
 
 /// Holds all voice agent dependencies and selects the active tier based on
@@ -20,14 +21,20 @@ class VoiceAgentService {
   final ConnectivityService connectivity;
   final SpeechToText stt;
   final FlutterTts tts;
+  VoiceAgent? _cachedAgent;
 
   // TODO: inject GenerativeModel factory (Tier 1, Gemini) and CactusLM factory
   // (Tiers 2/3) during voice feature implementation.
 
-  /// Returns the appropriate agent for current conditions.
-  VoiceAgent get currentAgent {
-    // TODO: implement tier selection — check connectivity.isOnline and device RAM,
-    // return GeminiVoiceAgent, CactusVoiceAgent, or NativeFallbackAgent accordingly.
-    throw UnimplementedError('VoiceAgentService.currentAgent: TODO');
+  /// Returns the active voice agent. Until real tier selection is implemented,
+  /// returns a [MockVoiceAgent] so the in-app voice contract (start/stop,
+  /// transcript/response streams, tool callbacks) can be exercised end-to-end.
+  // TODO: replace with real tier selection — check connectivity.isOnline and
+  // device RAM, return GeminiVoiceAgent / CactusVoiceAgent / NativeFallbackAgent.
+  VoiceAgent get currentAgent => _cachedAgent ??= MockVoiceAgent();
+
+  Future<void> dispose() async {
+    await _cachedAgent?.dispose();
+    _cachedAgent = null;
   }
 }
