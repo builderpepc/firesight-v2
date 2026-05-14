@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:cactus/cactus.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +11,7 @@ import '../services/audio/audio_output_service.dart';
 import '../services/camera/camera_provider.dart';
 import '../services/camera/phone_camera_provider.dart';
 import '../services/connectivity/connectivity_service.dart';
+import '../services/device/device_capability_service.dart';
 import '../services/pdf/pdf_export_service.dart';
 import '../services/session/session_service.dart';
 import '../services/session/session_storage.dart';
@@ -68,6 +70,16 @@ final cameraProviderProvider = Provider<CameraProvider>((ref) {
   return PhoneCameraProvider(null);
 });
 
+/// Device hardware capability queries (RAM detection for tier selection).
+final deviceCapabilityProvider = Provider<DeviceCapabilityService>((ref) {
+  return const DeviceCapabilityService();
+});
+
+/// Shared CactusLM instance for Tier 2/3 offline inference.
+final cactusLmProvider = Provider<CactusLM>((ref) {
+  return CactusLM();
+});
+
 /// Voice agent tier selector — holds all agent dependencies and picks the
 /// appropriate tier based on connectivity and device capability.
 final voiceAgentServiceProvider = Provider<VoiceAgentService>((ref) {
@@ -77,5 +89,7 @@ final voiceAgentServiceProvider = Provider<VoiceAgentService>((ref) {
     tts: FlutterTts(),
     firebaseAI: FirebaseAI.vertexAI(),
     audioOutput: ref.watch(audioOutputServiceProvider),
+    deviceCapability: ref.watch(deviceCapabilityProvider),
+    cactus: ref.watch(cactusLmProvider),
   );
 });
