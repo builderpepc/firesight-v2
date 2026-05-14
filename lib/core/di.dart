@@ -48,6 +48,15 @@ final isOnlineProvider = StreamProvider<bool>((ref) {
   return ref.watch(connectivityServiceProvider).isOnline;
 });
 
+/// Shared SpeechToText instance (used by Tier 2/3 agents and debug screen).
+final sttProvider = Provider<SpeechToText>((ref) => SpeechToText());
+
+/// Shared FlutterTts instance (used by Tier 2/3 agents and debug screen).
+final ttsProvider = Provider<FlutterTts>((ref) => FlutterTts());
+
+/// Firebase AI instance for Tier 1 (Gemini Live API).
+final firebaseAIProvider = Provider<FirebaseAI>((ref) => FirebaseAI.vertexAI());
+
 /// On-device text-to-speech (used for Tier 2/3 fallback agents).
 final ttsServiceProvider = Provider<TtsService>((ref) {
   return TtsService(FlutterTts());
@@ -85,9 +94,9 @@ final cactusLmProvider = Provider<CactusLM>((ref) {
 final voiceAgentServiceProvider = Provider<VoiceAgentService>((ref) {
   return VoiceAgentService(
     connectivity: ref.watch(connectivityServiceProvider),
-    stt: SpeechToText(),
-    tts: FlutterTts(),
-    firebaseAI: FirebaseAI.vertexAI(),
+    stt: ref.watch(sttProvider),
+    tts: ref.watch(ttsProvider),
+    firebaseAI: ref.watch(firebaseAIProvider),
     audioOutput: ref.watch(audioOutputServiceProvider),
     deviceCapability: ref.watch(deviceCapabilityProvider),
     cactus: ref.watch(cactusLmProvider),

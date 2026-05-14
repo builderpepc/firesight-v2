@@ -3,7 +3,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firesight/core/di.dart';
 import 'package:firesight/models/inspection_session.dart';
+import 'package:firesight/services/voice/cactus_voice_agent.dart';
+import 'package:firesight/services/voice/gemini_voice_agent.dart';
+import 'package:firesight/services/voice/native_fallback_agent.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
+
+enum _TierOverride {
+  auto('Auto (connectivity-based)'),
+  tier1('Tier 1 — Gemini (online)'),
+  tier2e2b('Tier 2 — Gemma 4 E2B (Cactus)'),
+  tier2e4b('Tier 2 — Gemma 4 E4B (Cactus)'),
+  tier3('Tier 3 — Gemma 3 1B (native STT/TTS)');
+
+  const _TierOverride(this.label);
+  final String label;
+}
 
 /// Throwaway debug screen for testing the voice agent pipeline.
 ///
@@ -22,6 +36,7 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
   bool _isOnline = false;
   String _tierLabel = 'Unknown';
   String? _errorMessage;
+  _TierOverride _tierOverride = _TierOverride.auto;
 
   final List<_LogEntry> _transcripts = [];
   final List<_LogEntry> _responses = [];
@@ -41,10 +56,49 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
     _onlineSub = connectivity.isOnline.listen((online) {
       if (mounted) setState(() => _isOnline = online);
     });
-    // Eagerly resolve current state.
     connectivity.checkOnline().then((online) {
       if (mounted) setState(() => _isOnline = online);
     });
+  }
+
+  /// Resolves an agent according to [_tierOverride], bypassing connectivity
+  /// checks when a specific tier is forced.
+  Future<VoiceAgent> _resolveAgent() async {
+    switch (_tierOverride) {
+      case _TierOverride.auto:
+        return ref.read(voiceAgentServiceProvider).resolveAgent();
+      case _TierOverride.tier1:
+        return GeminiVoiceAgent(
+          ref.read(firebaseAIProvider),
+          ref.read(audioOutputServiceProvider),
+        );
+      case _TierOverride.tier2e2b:
+        return CactusVoiceAgent(
+          ref.read(cactusLmProvider),
+          ref.read(sttProvider),
+          ref.read(ttsProvider),
+          modelSlug: kGemma4E2bSlug,
+        );
+      case _TierOverride.tier2e4b:
+        return CactusVoiceAgent(
+          ref.read(cactusLmProvider),
+          ref.read(sttProvider),
+          ref.read(ttsProvider),
+          modelSlug: kGemma4E4bSlug,
+        );
+      case _TierOverride.tier3:
+        return NativeFallbackAgent(ref.read(sttProvider), ref.read(ttsProvider));
+    }
+  }
+
+  String _labelForAgent(VoiceAgent agent) {
+    if (agent is GeminiVoiceAgent) return 'Tier 1 — Gemini';
+    if (agent is CactusVoiceAgent) {
+      final variant = agent.modelSlug == kGemma4E4bSlug ? 'E4B' : 'E2B';
+      return 'Tier 2 — Gemma 4 $variant (Cactus)';
+    }
+    if (agent is NativeFallbackAgent) return 'Tier 3 — Native STT/TTS';
+    return 'Unknown';
   }
 
   Future<void> _startListening() async {
@@ -54,10 +108,8 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
     });
 
     try {
-      final service = ref.read(voiceAgentServiceProvider);
-      final agent = await service.resolveAgent();
+      final agent = await _resolveAgent();
 
-      // Use a throwaway in-memory session so disk is not polluted.
       final session = InspectionSession(
         id: 'debug-session',
         name: 'Debug Session',
@@ -65,15 +117,12 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
         updatedAt: DateTime.now(),
       );
 
-      // Subscribe before startListening to avoid missing early events.
       _transcriptSub = agent.transcriptStream.listen((text) {
         if (mounted) setState(() => _transcripts.add(_LogEntry(text)));
       });
-
       _responseSub = agent.responseStream.listen((text) {
         if (mounted) setState(() => _responses.add(_LogEntry(text)));
       });
-
       _errorSub = agent.errorStream.listen((error) {
         if (mounted) {
           setState(() {
@@ -90,7 +139,7 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
         setState(() {
           _agent = agent;
           _isListening = true;
-          _tierLabel = 'Tier 1 — Gemini';
+          _tierLabel = _labelForAgent(agent);
         });
       }
     } on UnimplementedError catch (e) {
@@ -111,7 +160,6 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
   }
 
   Future<void> _stopListening() async {
-    // Reset state immediately so the button unlocks regardless of cleanup time.
     if (mounted) {
       setState(() {
         _isListening = false;
@@ -121,7 +169,14 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
     await _transcriptSub?.cancel();
     await _responseSub?.cancel();
     await _errorSub?.cancel();
-    _agent?.stopListening(); // fire-and-forget; cleanup runs in background
+    _agent?.stopListening();
+  }
+
+  bool get _canStart {
+    if (_isListening) return false;
+    // Auto mode requires connectivity; forced overrides work regardless.
+    if (_tierOverride == _TierOverride.auto) return _isOnline;
+    return true;
   }
 
   @override
@@ -145,12 +200,17 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
           children: [
             _StatusRow(isOnline: _isOnline, tierLabel: _tierLabel),
             const SizedBox(height: 12),
-            if (_errorMessage != null)
-              _ErrorBanner(message: _errorMessage!),
+            _TierOverrideDropdown(
+              value: _tierOverride,
+              enabled: !_isListening,
+              onChanged: (v) => setState(() => _tierOverride = v),
+            ),
+            const SizedBox(height: 12),
+            if (_errorMessage != null) _ErrorBanner(message: _errorMessage!),
             const SizedBox(height: 12),
             _ControlButton(
               isListening: _isListening,
-              enabled: _isOnline && !_isListening || _isListening,
+              enabled: _canStart || _isListening,
               onStart: _startListening,
               onStop: _stopListening,
             ),
@@ -172,6 +232,35 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _TierOverrideDropdown extends StatelessWidget {
+  const _TierOverrideDropdown({
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final _TierOverride value;
+  final bool enabled;
+  final ValueChanged<_TierOverride> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<_TierOverride>(
+      initialValue: value,
+      decoration: const InputDecoration(
+        labelText: 'Voice tier override',
+        border: OutlineInputBorder(),
+        isDense: true,
+        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      ),
+      items: _TierOverride.values
+          .map((t) => DropdownMenuItem(value: t, child: Text(t.label)))
+          .toList(),
+      onChanged: enabled ? (v) { if (v != null) onChanged(v); } : null,
     );
   }
 }
@@ -268,7 +357,9 @@ class _LogPanel extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
             ),
             child: entries.isEmpty
-                ? const Center(child: Text('—', style: TextStyle(color: Colors.grey)))
+                ? const Center(
+                    child: Text('—', style: TextStyle(color: Colors.grey)),
+                  )
                 : ListView.separated(
                     padding: const EdgeInsets.all(8),
                     itemCount: entries.length,
@@ -294,7 +385,9 @@ class _LogPanel extends StatelessWidget {
   }
 
   String _formatTime(DateTime t) =>
-      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}';
+      '${t.hour.toString().padLeft(2, '0')}:'
+      '${t.minute.toString().padLeft(2, '0')}:'
+      '${t.second.toString().padLeft(2, '0')}';
 }
 
 class _LogEntry {

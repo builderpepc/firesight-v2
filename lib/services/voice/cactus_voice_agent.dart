@@ -6,10 +6,12 @@ import 'package:speech_to_text/speech_to_text.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
 
-// Verify these slugs against `CactusLM().getModels()` before first deployment:
-// https://huggingface.co/Cactus-Compute — E4B for ≥6 GB RAM, E2B otherwise.
-const kGemma4E4bSlug = 'google/gemma-4-E4B-it';
-const kGemma4E2bSlug = 'google/gemma-4-E2B-it';
+// Sentinel values passed to [resolveGemma4Slug] to pick a model variant.
+// These are NOT passed directly to the Cactus SDK — the actual slug is
+// discovered at runtime via CactusLM.getModels() because the Flutter SDK's
+// Supabase backend uses its own identifiers, separate from the CLI/HF names.
+const kGemma4E4bSlug = 'gemma4-e4b'; // ~4 B params, requires ≥6 GB RAM
+const kGemma4E2bSlug = 'gemma4-e2b'; // ~2 B params, requires ≥4 GB RAM
 
 const _kMaxResponseTokens = 256;
 const _kListenFor = Duration(seconds: 30);
@@ -37,6 +39,7 @@ class CactusVoiceAgent implements VoiceAgent {
 
   bool _listening = false;
   bool _modelReady = false;
+  String? _resolvedSlug;
 
   final _transcriptController = StreamController<String>.broadcast();
   final _responseController = StreamController<String>.broadcast();
@@ -58,8 +61,18 @@ class CactusVoiceAgent implements VoiceAgent {
 
     if (!_modelReady) {
       try {
+        final resolvedSlug = await resolveGemma4Slug(_cactus, modelSlug);
+        if (resolvedSlug == null) {
+          _listening = false;
+          _errorController.add(StateError(
+            'No Gemma 4 model found in the Cactus model registry. '
+            'Check internet connectivity for the initial model fetch.',
+          ));
+          return;
+        }
+        _resolvedSlug = resolvedSlug;
         await _cactus.initializeModel(
-          params: CactusInitParams(model: modelSlug, contextSize: 2048),
+          params: CactusInitParams(model: resolvedSlug, contextSize: 2048),
         );
         _modelReady = true;
       } catch (e) {
@@ -122,7 +135,7 @@ class CactusVoiceAgent implements VoiceAgent {
       final streamedResult = await _cactus.generateCompletionStream(
         messages: messages,
         params: CactusCompletionParams(
-          model: modelSlug,
+          model: _resolvedSlug ?? modelSlug,
           maxTokens: _kMaxResponseTokens,
         ),
       );
@@ -164,6 +177,7 @@ class CactusVoiceAgent implements VoiceAgent {
     await stopListening();
     _cactus.unload();
     _modelReady = false;
+    _resolvedSlug = null;
     await _transcriptController.close();
     await _responseController.close();
     await _errorController.close();
@@ -195,5 +209,53 @@ Keep responses brief (1-2 sentences).
 
 Inspection: ${session.name}
 ${lines.isEmpty ? 'No observations recorded yet.' : 'Existing observations:\n$lines'}''';
+  }
+}
+
+/// Queries the Cactus model registry and returns the slug of the best
+/// available Gemma 4 model matching [hint] (either [kGemma4E4bSlug] for the
+/// 4 B variant or [kGemma4E2bSlug] for the 2 B variant).
+///
+/// Returns `null` if no Gemma 4 models are available (e.g. no internet on
+/// first run or the registry has not yet published Gemma 4 weights).
+///
+/// The Cactus Flutter SDK's Supabase-backed model registry uses its own slug
+/// identifiers that differ from the CLI / HuggingFace model names, so this
+/// function discovers the correct slug at runtime rather than hard-coding it.
+@visibleForTesting
+Future<String?> resolveGemma4Slug(CactusLM cactus, String hint) async {
+  try {
+    final models = await cactus.getModels();
+
+    // Prefer an exact name/slug match first (registry may use short slugs
+    // like "gemma4-e2b" or full names like "Gemma 4 E2B").
+    final wantE4b = hint == kGemma4E4bSlug;
+    final sizeTag = wantE4b ? 'e4b' : 'e2b';
+
+    // 1. Try to find a model whose slug or name contains the size tag.
+    for (final m in models) {
+      final slug = m.slug.toLowerCase();
+      final name = m.name.toLowerCase();
+      if ((slug.contains('gemma') || name.contains('gemma')) &&
+          (slug.contains('4') || name.contains('4')) &&
+          (slug.contains(sizeTag) || name.contains(sizeTag))) {
+        return m.slug;
+      }
+    }
+
+    // 2. Fall back to any Gemma 4 model if the preferred size isn't found.
+    for (final m in models) {
+      final slug = m.slug.toLowerCase();
+      final name = m.name.toLowerCase();
+      if ((slug.contains('gemma') || name.contains('gemma')) &&
+          (slug.contains('4') || name.contains('4'))) {
+        return m.slug;
+      }
+    }
+
+    return null;
+  } catch (e) {
+    debugPrint('resolveGemma4Slug: failed to fetch model list: $e');
+    return null;
   }
 }
