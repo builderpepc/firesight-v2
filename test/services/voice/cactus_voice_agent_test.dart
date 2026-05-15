@@ -1,24 +1,10 @@
-import 'package:cactus/cactus.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mocktail/mocktail.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/models/observation.dart';
 import 'package:firesight/services/voice/cactus_voice_agent.dart';
 
-class MockCactusLM extends Mock implements CactusLM {}
-
-CactusModel _model(String slug, String name) => CactusModel(
-      createdAt: DateTime(2026),
-      slug: slug,
-      downloadUrl: 'https://example.com/$slug',
-      sizeMb: 100,
-      supportsToolCalling: false,
-      supportsVision: false,
-      name: name,
-    );
-
 // Integration tests (actual model load / microphone) require a physical device.
-// These unit tests cover the pure message-builder and slug-resolver logic.
+// These unit tests cover the pure message-builder and constant logic.
 
 void main() {
   group('CactusVoiceAgent.buildMessages', () {
@@ -105,7 +91,7 @@ void main() {
     });
   });
 
-  group('CactusVoiceAgent model slug constants', () {
+  group('Gemma 4 model hint slug constants', () {
     test('E2B slug is non-empty', () {
       expect(kGemma4E2bSlug, isNotEmpty);
     });
@@ -114,60 +100,13 @@ void main() {
       expect(kGemma4E4bSlug, isNotEmpty);
       expect(kGemma4E4bSlug, isNot(equals(kGemma4E2bSlug)));
     });
-  });
 
-  group('resolveGemma4Slug', () {
-    late MockCactusLM cactus;
-
-    setUp(() => cactus = MockCactusLM());
-
-    test('returns E2B slug when registry has a matching model', () async {
-      when(() => cactus.getModels()).thenAnswer((_) async => [
-            _model('gemma4-e2b', 'Gemma 4 E2B'),
-            _model('gemma4-e4b', 'Gemma 4 E4B'),
-          ]);
-      final slug = await resolveGemma4Slug(cactus, kGemma4E2bSlug);
-      expect(slug, 'gemma4-e2b');
-    });
-
-    test('returns E4B slug when E4B hint is given', () async {
-      when(() => cactus.getModels()).thenAnswer((_) async => [
-            _model('gemma4-e2b', 'Gemma 4 E2B'),
-            _model('gemma4-e4b', 'Gemma 4 E4B'),
-          ]);
-      final slug = await resolveGemma4Slug(cactus, kGemma4E4bSlug);
-      expect(slug, 'gemma4-e4b');
-    });
-
-    test('falls back to any Gemma 4 model when preferred size absent', () async {
-      when(() => cactus.getModels()).thenAnswer((_) async => [
-            _model('gemma4-e2b', 'Gemma 4 E2B'),
-          ]);
-      // Ask for E4B but only E2B is available.
-      final slug = await resolveGemma4Slug(cactus, kGemma4E4bSlug);
-      expect(slug, 'gemma4-e2b');
-    });
-
-    test('returns null when no Gemma 4 models are in the registry', () async {
-      when(() => cactus.getModels()).thenAnswer((_) async => [
-            _model('qwen3-0.6', 'Qwen 3 0.6B'),
-          ]);
-      final slug = await resolveGemma4Slug(cactus, kGemma4E2bSlug);
-      expect(slug, isNull);
-    });
-
-    test('returns null when getModels throws', () async {
-      when(() => cactus.getModels()).thenThrow(Exception('network error'));
-      final slug = await resolveGemma4Slug(cactus, kGemma4E2bSlug);
-      expect(slug, isNull);
-    });
-
-    test('matches slug that contains gemma and 4 in different positions', () async {
-      when(() => cactus.getModels()).thenAnswer((_) async => [
-            _model('google-gemma-4-e2b-instruct', 'Google Gemma 4 E2B Instruct'),
-          ]);
-      final slug = await resolveGemma4Slug(cactus, kGemma4E2bSlug);
-      expect(slug, 'google-gemma-4-e2b-instruct');
+    test('E2B and E4B slugs are re-exported from cactus_voice_agent', () {
+      // Verifies that callers can import the constants from either file.
+      const e2b = kGemma4E2bSlug;
+      const e4b = kGemma4E4bSlug;
+      expect(e2b, isNotEmpty);
+      expect(e4b, isNotEmpty);
     });
   });
 }

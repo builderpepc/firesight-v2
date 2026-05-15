@@ -4,14 +4,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:firesight/models/inspection_session.dart';
+import 'package:firesight/services/voice/gemma4_downloader.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
 
-// Sentinel values passed to [resolveGemma4Slug] to pick a model variant.
-// These are NOT passed directly to the Cactus SDK — the actual slug is
-// discovered at runtime via CactusLM.getModels() because the Flutter SDK's
-// Supabase backend uses its own identifiers, separate from the CLI/HF names.
-const kGemma4E4bSlug = 'gemma4-e4b'; // ~4 B params, requires ≥6 GB RAM
-const kGemma4E2bSlug = 'gemma4-e2b'; // ~2 B params, requires ≥4 GB RAM
+export 'package:firesight/services/voice/gemma4_downloader.dart'
+    show kGemma4E2bSlug, kGemma4E4bSlug;
 
 const _kMaxResponseTokens = 256;
 const _kListenFor = Duration(seconds: 30);
@@ -20,10 +17,8 @@ const _kPauseFor = Duration(seconds: 2);
 /// Tier 2: on-device LLM (Gemma 4 via CactusLM) + native STT + native TTS.
 ///
 /// Used when internet is unavailable on a capable device (≥4 GB RAM).
-/// The [modelSlug] selects E4B (≥6 GB) or E2B (4–6 GB); defaults to E2B.
-///
-/// NOTE: Galaxy S22 cannot run Gemma 4 reliably. The [VoiceAgentService] tier
-/// selector falls through to Tier 3 (NativeFallbackAgent) for such devices.
+/// [modelSlug] selects [kGemma4E4bSlug] (≥6 GB, INT8) or [kGemma4E2bSlug]
+/// (4–6 GB, INT4). Weights are downloaded from HuggingFace on first use.
 class CactusVoiceAgent implements VoiceAgent {
   CactusVoiceAgent(
     this._cactus,
@@ -35,6 +30,8 @@ class CactusVoiceAgent implements VoiceAgent {
   final CactusLM _cactus;
   final SpeechToText _stt;
   final FlutterTts _tts;
+
+  /// Hint slug that was passed to the constructor.
   final String modelSlug;
 
   bool _listening = false;
@@ -45,6 +42,11 @@ class CactusVoiceAgent implements VoiceAgent {
   final _responseController = StreamController<String>.broadcast();
   final _errorController = StreamController<Object>.broadcast();
 
+  /// Emits `(progress, statusMessage)` during the initial model download.
+  /// `progress` is 0.0–1.0 while downloading, or null for indeterminate steps.
+  final _downloadProgressController =
+      StreamController<(double?, String)>.broadcast();
+
   @override
   Stream<String> get transcriptStream => _transcriptController.stream;
 
@@ -54,6 +56,9 @@ class CactusVoiceAgent implements VoiceAgent {
   @override
   Stream<Object> get errorStream => _errorController.stream;
 
+  Stream<(double?, String)> get downloadProgressStream =>
+      _downloadProgressController.stream;
+
   @override
   Future<void> startListening(InspectionSession session) async {
     if (_listening) return;
@@ -61,20 +66,30 @@ class CactusVoiceAgent implements VoiceAgent {
 
     if (!_modelReady) {
       try {
-        final resolvedSlug = await resolveGemma4Slug(_cactus, modelSlug);
-        if (resolvedSlug == null) {
+        _downloadProgressController.add((null, 'Checking model…'));
+        final localSlug = await ensureGemma4Downloaded(
+          modelSlug,
+          onProgress: (progress, status) {
+            _downloadProgressController.add((progress, status));
+          },
+        );
+
+        if (localSlug == null) {
           _listening = false;
           _errorController.add(StateError(
-            'No Gemma 4 model found in the Cactus model registry. '
-            'Check internet connectivity for the initial model fetch.',
+            'Failed to download Gemma 4 model. '
+            'Check your internet connection and try again.',
           ));
           return;
         }
-        _resolvedSlug = resolvedSlug;
+
+        _resolvedSlug = localSlug;
+        _downloadProgressController.add((null, 'Initializing model…'));
         await _cactus.initializeModel(
-          params: CactusInitParams(model: resolvedSlug, contextSize: 2048),
+          params: CactusInitParams(model: localSlug, contextSize: 2048),
         );
         _modelReady = true;
+        _downloadProgressController.add((1.0, 'Model ready'));
       } catch (e) {
         _listening = false;
         _errorController.add(e);
@@ -129,7 +144,8 @@ class CactusVoiceAgent implements VoiceAgent {
   }
 
   /// Runs [utterance] through CactusLM and speaks the response via TTS.
-  Future<void> _processUtterance(String utterance, InspectionSession session) async {
+  Future<void> _processUtterance(
+      String utterance, InspectionSession session) async {
     try {
       final messages = buildMessages(session, utterance);
       final streamedResult = await _cactus.generateCompletionStream(
@@ -181,10 +197,10 @@ class CactusVoiceAgent implements VoiceAgent {
     await _transcriptController.close();
     await _responseController.close();
     await _errorController.close();
+    await _downloadProgressController.close();
   }
 
-  /// Builds the CactusLM message list from [session] context and the [utterance].
-  /// Exposed for unit testing.
+  /// Builds the CactusLM message list from [session] context and [utterance].
   @visibleForTesting
   static List<ChatMessage> buildMessages(
     InspectionSession session,
@@ -209,53 +225,5 @@ Keep responses brief (1-2 sentences).
 
 Inspection: ${session.name}
 ${lines.isEmpty ? 'No observations recorded yet.' : 'Existing observations:\n$lines'}''';
-  }
-}
-
-/// Queries the Cactus model registry and returns the slug of the best
-/// available Gemma 4 model matching [hint] (either [kGemma4E4bSlug] for the
-/// 4 B variant or [kGemma4E2bSlug] for the 2 B variant).
-///
-/// Returns `null` if no Gemma 4 models are available (e.g. no internet on
-/// first run or the registry has not yet published Gemma 4 weights).
-///
-/// The Cactus Flutter SDK's Supabase-backed model registry uses its own slug
-/// identifiers that differ from the CLI / HuggingFace model names, so this
-/// function discovers the correct slug at runtime rather than hard-coding it.
-@visibleForTesting
-Future<String?> resolveGemma4Slug(CactusLM cactus, String hint) async {
-  try {
-    final models = await cactus.getModels();
-
-    // Prefer an exact name/slug match first (registry may use short slugs
-    // like "gemma4-e2b" or full names like "Gemma 4 E2B").
-    final wantE4b = hint == kGemma4E4bSlug;
-    final sizeTag = wantE4b ? 'e4b' : 'e2b';
-
-    // 1. Try to find a model whose slug or name contains the size tag.
-    for (final m in models) {
-      final slug = m.slug.toLowerCase();
-      final name = m.name.toLowerCase();
-      if ((slug.contains('gemma') || name.contains('gemma')) &&
-          (slug.contains('4') || name.contains('4')) &&
-          (slug.contains(sizeTag) || name.contains(sizeTag))) {
-        return m.slug;
-      }
-    }
-
-    // 2. Fall back to any Gemma 4 model if the preferred size isn't found.
-    for (final m in models) {
-      final slug = m.slug.toLowerCase();
-      final name = m.name.toLowerCase();
-      if ((slug.contains('gemma') || name.contains('gemma')) &&
-          (slug.contains('4') || name.contains('4'))) {
-        return m.slug;
-      }
-    }
-
-    return null;
-  } catch (e) {
-    debugPrint('resolveGemma4Slug: failed to fetch model list: $e');
-    return null;
   }
 }
