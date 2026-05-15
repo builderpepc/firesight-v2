@@ -70,7 +70,7 @@ class CactusVoiceAgent implements VoiceAgent {
         _listening = false;
         _errorController.add(StateError(
           'Model file not found at $_modelPath. '
-          'Download the Gemma 4 GGUF model to that path and try again.',
+          'The model may still be downloading — check the home screen for progress.',
         ));
         return;
       }

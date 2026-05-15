@@ -43,6 +43,9 @@ dependencies:
   pdf: ^3.11.0
   printing: ^5.13.0
 
+  # HTTP client (model downloads)
+  dio: ^5.7.0
+
   # Utilities
   connectivity_plus: ^6.0.0
   uuid: ^4.4.0

@@ -16,6 +16,15 @@ class AppPaths {
   static const String photos = 'photos';
 }
 
+/// HuggingFace model download URLs.
+///
+/// The weights repo ships ZIP archives containing a single GGUF file.
+/// [ModelDownloadService] downloads the ZIP and extracts the GGUF in place.
+class ModelUrls {
+  static const String gemma4E2bZip =
+      'https://huggingface.co/Cactus-Compute/gemma-4-E2B-it/resolve/main/weights/gemma-4-e2b-it-int4.zip';
+}
+
 /// Timeouts (milliseconds)
 class Timeouts {
   static const int defaultTimeout = 30000;

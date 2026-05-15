@@ -15,6 +15,7 @@ import '../services/pdf/pdf_export_service.dart';
 import '../services/session/session_service.dart';
 import '../services/session/session_storage.dart';
 import '../services/tts/tts_service.dart';
+import '../services/model/model_download_service.dart';
 import '../services/voice/voice_agent_service.dart';
 
 /// Base path for all app documents (async — resolved once at startup).
@@ -81,6 +82,21 @@ final cameraProviderProvider = Provider<CameraProvider>((ref) {
 /// Device hardware capability queries (RAM detection for tier selection).
 final deviceCapabilityProvider = Provider<DeviceCapabilityService>((ref) {
   return const DeviceCapabilityService();
+});
+
+/// Manages automatic download of the Gemma 4 E2B on-device model.
+///
+/// Watches [appDocsDirProvider]; auto-resolves once the docs directory is known.
+final modelDownloadProvider =
+    StateNotifierProvider<ModelDownloadNotifier, ModelDownloadStatus>((ref) {
+  // appDocsDirProvider is async; return an idle notifier while it resolves,
+  // then rebuild once the dir is available.
+  final dirAsync = ref.watch(appDocsDirProvider);
+  return dirAsync.when(
+    data: (dir) => ModelDownloadNotifier(dir),
+    loading: () => ModelDownloadNotifier(Directory('')),
+    error: (_, __) => ModelDownloadNotifier(Directory('')),
+  );
 });
 
 /// Voice agent tier selector — holds all agent dependencies and picks the

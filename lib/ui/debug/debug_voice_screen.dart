@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firesight/core/di.dart';
 import 'package:firesight/models/inspection_session.dart';
+import 'package:firesight/services/model/model_download_service.dart';
 import 'package:firesight/services/voice/cactus_voice_agent.dart';
 import 'package:firesight/services/voice/gemini_voice_agent.dart';
 import 'package:firesight/services/voice/native_fallback_agent.dart';
@@ -164,10 +165,18 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
     _agent?.stopListening();
   }
 
+  bool _isTier2Override(_TierOverride t) =>
+      t == _TierOverride.tier2e2b || t == _TierOverride.tier2e4b;
+
   bool get _canStart {
     if (_isListening) return false;
     // Auto mode requires connectivity; forced overrides work regardless.
     if (_tierOverride == _TierOverride.auto) return _isOnline;
+    // Disable Start while the model is actively downloading (Tier 2 overrides).
+    if (_isTier2Override(_tierOverride)) {
+      final dl = ref.read(modelDownloadProvider);
+      if (dl is ModelDownloadInProgress || dl is ModelDownloadExtracting) return false;
+    }
     return true;
   }
 
@@ -195,9 +204,17 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
             _TierOverrideDropdown(
               value: _tierOverride,
               enabled: !_isListening,
-              onChanged: (v) => setState(() => _tierOverride = v),
+              onChanged: (v) {
+                setState(() => _tierOverride = v);
+                // Kick off model download check when user picks Tier 2.
+                if (_isTier2Override(v)) {
+                  ref.read(modelDownloadProvider.notifier).ensureDownloaded();
+                }
+              },
             ),
             const SizedBox(height: 12),
+            if (_isTier2Override(_tierOverride))
+              _DownloadStatusRow(status: ref.watch(modelDownloadProvider)),
             if (_errorMessage != null) _ErrorBanner(message: _errorMessage!),
             const SizedBox(height: 12),
             _ControlButton(
@@ -387,4 +404,88 @@ class _LogEntry {
 
   final String text;
   final DateTime timestamp;
+}
+
+/// Inline download status shown beneath the tier dropdown when Tier 2 is selected.
+class _DownloadStatusRow extends ConsumerWidget {
+  const _DownloadStatusRow({required this.status});
+
+  final ModelDownloadStatus status;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final (text, color, actions) = switch (status) {
+      ModelDownloadIdle() ||
+      ModelDownloadChecking() =>
+        ('Checking model…', Colors.grey, <Widget>[]),
+      ModelDownloadNeedsWifi() => (
+          'Model download requires WiFi (4.4 GB).',
+          Colors.orange.shade700,
+          <Widget>[
+            TextButton(
+              onPressed: () => ref
+                  .read(modelDownloadProvider.notifier)
+                  .startDownloadOnMobile(),
+              child: const Text('Download anyway'),
+            ),
+          ],
+        ),
+      ModelDownloadInProgress(
+        progress: final p,
+        bytesReceived: final received,
+        totalBytes: final total,
+      ) =>
+        (
+          _progressLabel(p, received, total),
+          Theme.of(context).colorScheme.primary,
+          <Widget>[
+            TextButton(
+              onPressed: () =>
+                  ref.read(modelDownloadProvider.notifier).cancelDownload(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      ModelDownloadExtracting() => (
+          'Extracting model…',
+          Theme.of(context).colorScheme.primary,
+          <Widget>[],
+        ),
+      ModelDownloadReady() =>
+        ('Model ready.', Colors.green.shade700, <Widget>[]),
+      ModelDownloadFailed(message: final msg) => (
+          msg,
+          Colors.red.shade700,
+          <Widget>[
+            TextButton(
+              onPressed: () =>
+                  ref.read(modelDownloadProvider.notifier).retryDownload(),
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+    };
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              text,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: color),
+            ),
+          ),
+          ...actions,
+        ],
+      ),
+    );
+  }
+
+  String _progressLabel(double? p, int received, int total) {
+    final mb = (received / 1024 / 1024).toStringAsFixed(0);
+    final totalMb = total > 0 ? '/${(total / 1024 / 1024).toStringAsFixed(0)} MB' : ' MB';
+    final pct = p != null ? ' (${(p * 100).toStringAsFixed(0)}%)' : '';
+    return 'Downloading… $mb$totalMb$pct';
+  }
 }
