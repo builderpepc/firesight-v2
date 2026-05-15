@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firesight/core/di.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/services/model/model_download_service.dart';
-import 'package:firesight/services/voice/cactus_voice_agent.dart';
+import 'package:firesight/services/voice/cactus_voice_agent.dart' show CactusVoiceAgent, kGemma4E2bSlug;
 import 'package:firesight/services/voice/gemini_voice_agent.dart';
 import 'package:firesight/services/voice/native_fallback_agent.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
@@ -13,7 +13,6 @@ enum _TierOverride {
   auto('Auto (connectivity-based)'),
   tier1('Tier 1 — Gemini (online)'),
   tier2e2b('Tier 2 — Gemma 4 E2B (Cactus)'),
-  tier2e4b('Tier 2 — Gemma 4 E4B (Cactus)'),
   tier3('Tier 3 — Gemma 3 1B (native STT/TTS)');
 
   const _TierOverride(this.label);
@@ -35,7 +34,7 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
   VoiceAgent? _agent;
   bool _isListening = false;
   bool _isOnline = false;
-  String _tierLabel = 'Unknown';
+  String _tierLabel = 'Idle';
   String? _errorMessage;
   _TierOverride _tierOverride = _TierOverride.auto;
 
@@ -76,9 +75,6 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
       case _TierOverride.tier2e2b:
         final path = await CactusVoiceAgent.defaultModelPath(kGemma4E2bSlug);
         return CactusVoiceAgent(path, ref.read(sttProvider), ref.read(ttsProvider));
-      case _TierOverride.tier2e4b:
-        final path = await CactusVoiceAgent.defaultModelPath(kGemma4E4bSlug);
-        return CactusVoiceAgent(path, ref.read(sttProvider), ref.read(ttsProvider));
       case _TierOverride.tier3:
         return NativeFallbackAgent(ref.read(sttProvider), ref.read(ttsProvider));
     }
@@ -86,10 +82,7 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
 
   String _labelForAgent(VoiceAgent agent) {
     if (agent is GeminiVoiceAgent) return 'Tier 1 — Gemini';
-    if (agent is CactusVoiceAgent) {
-      final variant = agent.modelSlug == kGemma4E4bSlug ? 'E4B' : 'E2B';
-      return 'Tier 2 — Gemma 4 $variant (Cactus)';
-    }
+    if (agent is CactusVoiceAgent) return 'Tier 2 — Gemma 4 E2B (Cactus)';
     if (agent is NativeFallbackAgent) return 'Tier 3 — Native STT/TTS';
     return 'Unknown';
   }
@@ -165,8 +158,7 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
     _agent?.stopListening();
   }
 
-  bool _isTier2Override(_TierOverride t) =>
-      t == _TierOverride.tier2e2b || t == _TierOverride.tier2e4b;
+  bool _isTier2Override(_TierOverride t) => t == _TierOverride.tier2e2b;
 
   bool get _canStart {
     if (_isListening) return false;
@@ -259,6 +251,7 @@ class _TierOverrideDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DropdownButtonFormField<_TierOverride>(
+      isExpanded: true,
       initialValue: value,
       decoration: const InputDecoration(
         labelText: 'Voice tier override',
