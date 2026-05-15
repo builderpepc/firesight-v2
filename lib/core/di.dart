@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:cactus/cactus.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -84,11 +83,6 @@ final deviceCapabilityProvider = Provider<DeviceCapabilityService>((ref) {
   return const DeviceCapabilityService();
 });
 
-/// Shared CactusLM instance for Tier 2/3 offline inference.
-final cactusLmProvider = Provider<CactusLM>((ref) {
-  return CactusLM();
-});
-
 /// Voice agent tier selector — holds all agent dependencies and picks the
 /// appropriate tier based on connectivity and device capability.
 final voiceAgentServiceProvider = Provider<VoiceAgentService>((ref) {
@@ -99,6 +93,5 @@ final voiceAgentServiceProvider = Provider<VoiceAgentService>((ref) {
     firebaseAI: ref.watch(firebaseAIProvider),
     audioOutput: ref.watch(audioOutputServiceProvider),
     deviceCapability: ref.watch(deviceCapabilityProvider),
-    cactus: ref.watch(cactusLmProvider),
   );
 });

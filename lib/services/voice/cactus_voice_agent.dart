@@ -1,51 +1,49 @@
 import 'dart:async';
-import 'package:cactus/cactus.dart';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:firesight/cactus.dart';
 import 'package:firesight/models/inspection_session.dart';
-import 'package:firesight/services/voice/gemma4_downloader.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
 
-export 'package:firesight/services/voice/gemma4_downloader.dart'
-    show kGemma4E2bSlug, kGemma4E4bSlug;
+/// GGUF filename for the Gemma 4 E2B (INT4) variant.
+const kGemma4E2bSlug = 'gemma-4-e2b-it-int4.gguf';
 
+/// GGUF filename for the Gemma 4 E4B (INT8) variant.
+const kGemma4E4bSlug = 'gemma-4-e4b-it-int8.gguf';
+
+const _kModelSubdir = 'cactus';
 const _kMaxResponseTokens = 256;
 const _kListenFor = Duration(seconds: 30);
 const _kPauseFor = Duration(seconds: 2);
 
-/// Tier 2: on-device LLM (Gemma 4 via CactusLM) + native STT + native TTS.
+/// Tier 2: on-device LLM (Gemma 4 via Cactus FFI) + native STT + native TTS.
 ///
 /// Used when internet is unavailable on a capable device (≥4 GB RAM).
-/// [modelSlug] selects [kGemma4E4bSlug] (≥6 GB, INT8) or [kGemma4E2bSlug]
-/// (4–6 GB, INT4). Weights are downloaded from HuggingFace on first use.
+/// [_modelPath] is the absolute path to the GGUF model file. If the file is
+/// absent when [startListening] is called, a [StateError] is emitted on
+/// [errorStream] and listening is aborted. Model download is deferred to a
+/// separate flow — this agent only runs inference.
 class CactusVoiceAgent implements VoiceAgent {
-  CactusVoiceAgent(
-    this._cactus,
-    this._stt,
-    this._tts, {
-    this.modelSlug = kGemma4E2bSlug,
-  });
+  CactusVoiceAgent(this._modelPath, this._stt, this._tts);
 
-  final CactusLM _cactus;
+  final String _modelPath;
   final SpeechToText _stt;
   final FlutterTts _tts;
 
-  /// Hint slug that was passed to the constructor.
-  final String modelSlug;
+  /// Last path component — identifies the model variant (e.g. [kGemma4E4bSlug]).
+  String get modelSlug => _modelPath.split(RegExp(r'[/\\]')).last;
 
   bool _listening = false;
   bool _modelReady = false;
-  String? _resolvedSlug;
+  CactusModelT? _model;
 
   final _transcriptController = StreamController<String>.broadcast();
   final _responseController = StreamController<String>.broadcast();
   final _errorController = StreamController<Object>.broadcast();
-
-  /// Emits `(progress, statusMessage)` during the initial model download.
-  /// `progress` is 0.0–1.0 while downloading, or null for indeterminate steps.
-  final _downloadProgressController =
-      StreamController<(double?, String)>.broadcast();
 
   @override
   Stream<String> get transcriptStream => _transcriptController.stream;
@@ -56,8 +54,11 @@ class CactusVoiceAgent implements VoiceAgent {
   @override
   Stream<Object> get errorStream => _errorController.stream;
 
-  Stream<(double?, String)> get downloadProgressStream =>
-      _downloadProgressController.stream;
+  /// Returns the default on-device path for the given [modelSlug] (filename).
+  static Future<String> defaultModelPath(String modelSlug) async {
+    final dir = await getApplicationDocumentsDirectory();
+    return '${dir.path}/$_kModelSubdir/$modelSlug';
+  }
 
   @override
   Future<void> startListening(InspectionSession session) async {
@@ -65,31 +66,18 @@ class CactusVoiceAgent implements VoiceAgent {
     _listening = true;
 
     if (!_modelReady) {
+      if (!File(_modelPath).existsSync()) {
+        _listening = false;
+        _errorController.add(StateError(
+          'Model file not found at $_modelPath. '
+          'Download the Gemma 4 GGUF model to that path and try again.',
+        ));
+        return;
+      }
+
       try {
-        _downloadProgressController.add((null, 'Checking model…'));
-        final localSlug = await ensureGemma4Downloaded(
-          modelSlug,
-          onProgress: (progress, status) {
-            _downloadProgressController.add((progress, status));
-          },
-        );
-
-        if (localSlug == null) {
-          _listening = false;
-          _errorController.add(StateError(
-            'Failed to download Gemma 4 model. '
-            'Check your internet connection and try again.',
-          ));
-          return;
-        }
-
-        _resolvedSlug = localSlug;
-        _downloadProgressController.add((null, 'Initializing model…'));
-        await _cactus.initializeModel(
-          params: CactusInitParams(model: localSlug, contextSize: 2048),
-        );
+        _model = cactusInit(_modelPath, null, false);
         _modelReady = true;
-        _downloadProgressController.add((1.0, 'Model ready'));
       } catch (e) {
         _listening = false;
         _errorController.add(e);
@@ -116,7 +104,6 @@ class CactusVoiceAgent implements VoiceAgent {
     _startListenCycle(session);
   }
 
-  /// Begins one STT listen cycle; re-invoked automatically after each response.
   void _startListenCycle(InspectionSession session) {
     if (!_listening) return;
 
@@ -143,34 +130,25 @@ class CactusVoiceAgent implements VoiceAgent {
     );
   }
 
-  /// Runs [utterance] through CactusLM and speaks the response via TTS.
   Future<void> _processUtterance(
       String utterance, InspectionSession session) async {
+    final model = _model;
+    if (model == null) return;
+
     try {
-      final messages = buildMessages(session, utterance);
-      final streamedResult = await _cactus.generateCompletionStream(
-        messages: messages,
-        params: CactusCompletionParams(
-          model: _resolvedSlug ?? modelSlug,
-          maxTokens: _kMaxResponseTokens,
-        ),
-      );
+      final messagesJson = buildMessages(session, utterance);
+      final optionsJson = jsonEncode({'max_tokens': _kMaxResponseTokens});
+      final response = cactusComplete(model, messagesJson, optionsJson, null, null);
+      final trimmed = response.trim();
+      if (trimmed.isEmpty) return;
 
-      final buffer = StringBuffer();
-      await for (final token in streamedResult.stream) {
-        buffer.write(token);
-      }
-
-      final response = buffer.toString().trim();
-      if (response.isEmpty) return;
-
-      _responseController.add(response);
+      _responseController.add(trimmed);
 
       final speakCompleter = Completer<void>();
       _tts.setCompletionHandler(() {
         if (!speakCompleter.isCompleted) speakCompleter.complete();
       });
-      await _tts.speak(response);
+      await _tts.speak(trimmed);
       await speakCompleter.future.timeout(
         const Duration(seconds: 30),
         onTimeout: () {},
@@ -191,25 +169,26 @@ class CactusVoiceAgent implements VoiceAgent {
   @override
   Future<void> dispose() async {
     await stopListening();
-    _cactus.unload();
+    final model = _model;
+    if (model != null) {
+      cactusDestroy(model);
+      _model = null;
+    }
     _modelReady = false;
-    _resolvedSlug = null;
     await _transcriptController.close();
     await _responseController.close();
     await _errorController.close();
-    await _downloadProgressController.close();
   }
 
-  /// Builds the CactusLM message list from [session] context and [utterance].
+  /// Builds the Cactus message JSON from [session] context and [utterance].
+  ///
+  /// Returns a JSON-encoded list: `[{"role":"system","content":"..."},{"role":"user","content":"..."}]`
   @visibleForTesting
-  static List<ChatMessage> buildMessages(
-    InspectionSession session,
-    String utterance,
-  ) {
-    return [
-      ChatMessage(role: 'system', content: _buildSystemPrompt(session)),
-      ChatMessage(role: 'user', content: utterance),
-    ];
+  static String buildMessages(InspectionSession session, String utterance) {
+    return jsonEncode([
+      {'role': 'system', 'content': _buildSystemPrompt(session)},
+      {'role': 'user', 'content': utterance},
+    ]);
   }
 
   static String _buildSystemPrompt(InspectionSession session) {

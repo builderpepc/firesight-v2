@@ -1,6 +1,6 @@
-import 'package:cactus/cactus.dart';
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:firesight/services/audio/audio_output_service.dart';
 import 'package:firesight/services/connectivity/connectivity_service.dart';
@@ -27,7 +27,7 @@ class VoiceAgentService {
     required this.firebaseAI,
     required this.audioOutput,
     required this.deviceCapability,
-    required this.cactus,
+    this.modelBasePath,
   });
 
   final ConnectivityService connectivity;
@@ -36,7 +36,10 @@ class VoiceAgentService {
   final FirebaseAI firebaseAI;
   final AudioOutputService audioOutput;
   final DeviceCapabilityService deviceCapability;
-  final CactusLM cactus;
+
+  /// Override for the model base directory. If null, resolved from
+  /// [getApplicationDocumentsDirectory] at resolution time.
+  final String? modelBasePath;
 
   /// Returns the appropriate agent for current connectivity and device capability.
   Future<VoiceAgent> resolveAgent() async {
@@ -46,7 +49,10 @@ class VoiceAgentService {
     final ramGb = await deviceCapability.totalRamGb();
     if (ramGb != null && ramGb >= _kTier2RamThresholdGb) {
       final slug = ramGb >= _kE4bRamThresholdGb ? kGemma4E4bSlug : kGemma4E2bSlug;
-      return CactusVoiceAgent(cactus, stt, tts, modelSlug: slug);
+      final basePath =
+          modelBasePath ?? (await getApplicationDocumentsDirectory()).path;
+      final path = '$basePath/cactus/$slug';
+      return CactusVoiceAgent(path, stt, tts);
     }
 
     return NativeFallbackAgent(stt, tts);

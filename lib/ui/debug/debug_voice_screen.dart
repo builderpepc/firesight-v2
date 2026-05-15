@@ -38,16 +38,12 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
   String? _errorMessage;
   _TierOverride _tierOverride = _TierOverride.auto;
 
-  double? _downloadProgress;
-  String? _downloadStatus;
-
   final List<_LogEntry> _transcripts = [];
   final List<_LogEntry> _responses = [];
   StreamSubscription<String>? _transcriptSub;
   StreamSubscription<String>? _responseSub;
   StreamSubscription<Object>? _errorSub;
   StreamSubscription<bool>? _onlineSub;
-  StreamSubscription<(double?, String)>? _downloadSub;
 
   @override
   void initState() {
@@ -77,19 +73,11 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
           ref.read(audioOutputServiceProvider),
         );
       case _TierOverride.tier2e2b:
-        return CactusVoiceAgent(
-          ref.read(cactusLmProvider),
-          ref.read(sttProvider),
-          ref.read(ttsProvider),
-          modelSlug: kGemma4E2bSlug,
-        );
+        final path = await CactusVoiceAgent.defaultModelPath(kGemma4E2bSlug);
+        return CactusVoiceAgent(path, ref.read(sttProvider), ref.read(ttsProvider));
       case _TierOverride.tier2e4b:
-        return CactusVoiceAgent(
-          ref.read(cactusLmProvider),
-          ref.read(sttProvider),
-          ref.read(ttsProvider),
-          modelSlug: kGemma4E4bSlug,
-        );
+        final path = await CactusVoiceAgent.defaultModelPath(kGemma4E4bSlug);
+        return CactusVoiceAgent(path, ref.read(sttProvider), ref.read(ttsProvider));
       case _TierOverride.tier3:
         return NativeFallbackAgent(ref.read(sttProvider), ref.read(ttsProvider));
     }
@@ -133,21 +121,9 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
             _isListening = false;
             _tierLabel = 'Error';
             _errorMessage = error.toString();
-            _downloadProgress = null;
-            _downloadStatus = null;
           });
         }
       });
-      if (agent is CactusVoiceAgent) {
-        _downloadSub = agent.downloadProgressStream.listen((event) {
-          if (mounted) {
-            setState(() {
-              _downloadProgress = event.$1;
-              _downloadStatus = event.$2;
-            });
-          }
-        });
-      }
 
       await agent.startListening(session);
 
@@ -180,14 +156,11 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
       setState(() {
         _isListening = false;
         _tierLabel = 'Idle';
-        _downloadProgress = null;
-        _downloadStatus = null;
       });
     }
     await _transcriptSub?.cancel();
     await _responseSub?.cancel();
     await _errorSub?.cancel();
-    await _downloadSub?.cancel();
     _agent?.stopListening();
   }
 
@@ -204,7 +177,6 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
     _transcriptSub?.cancel();
     _responseSub?.cancel();
     _errorSub?.cancel();
-    _downloadSub?.cancel();
     _agent?.dispose();
     super.dispose();
   }
@@ -227,11 +199,6 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
             ),
             const SizedBox(height: 12),
             if (_errorMessage != null) _ErrorBanner(message: _errorMessage!),
-            if (_downloadStatus != null)
-              _DownloadProgressBanner(
-                status: _downloadStatus!,
-                progress: _downloadProgress,
-              ),
             const SizedBox(height: 12),
             _ControlButton(
               isListening: _isListening,
@@ -358,37 +325,6 @@ class _ControlButton extends StatelessWidget {
       onPressed: enabled ? (isListening ? onStop : onStart) : null,
       icon: Icon(isListening ? Icons.stop : Icons.mic),
       label: Text(isListening ? 'Stop' : 'Start Listening'),
-    );
-  }
-}
-
-class _DownloadProgressBanner extends StatelessWidget {
-  const _DownloadProgressBanner({
-    required this.status,
-    required this.progress,
-  });
-
-  final String status;
-  final double? progress;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.blue.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.blue.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(status, style: TextStyle(color: Colors.blue.shade800)),
-          const SizedBox(height: 6),
-          LinearProgressIndicator(value: progress),
-        ],
-      ),
     );
   }
 }

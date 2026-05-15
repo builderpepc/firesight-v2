@@ -40,7 +40,8 @@ Gemini's voice API is preferred for voice input/output with on-device STT/TTS an
 - [Cactus docs homepage](https://docs.cactuscompute.com/latest/)
   - [GitHub repo](https://github.com/cactus-compute/cactus)
   - [HuggingFace](https://huggingface.co/Cactus-Compute) (includes Cactus-optimized models)
-  - [Flutter SDK reference](https://docs.cactuscompute.com/latest/flutter/) and [GitHub repo](https://github.com/cactus-compute/cactus-flutter)
+  - [Flutter SDK reference](https://docs.cactuscompute.com/latest/flutter/) and [GitHub repo](https://github.com/cactus-compute/cactus/tree/main/flutter)
+  - **Note:** `https://github.com/cactus-compute/cactus-flutter` is the deprecated Flutter SDK repo — do not use
 - [Flutter docs](https://docs.flutter.dev/)
 - [Google Gemini docs](https://ai.google.dev/gemini-api/docs)
 - [Google Gemma docs](https://ai.google.dev/gemma/docs)

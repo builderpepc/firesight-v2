@@ -1,4 +1,3 @@
-import 'package:cactus/cactus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:firebase_ai/firebase_ai.dart';
@@ -18,20 +17,20 @@ class MockFlutterTts extends Mock implements FlutterTts {}
 class MockSpeechToText extends Mock implements SpeechToText {}
 class MockAudioOutputService extends Mock implements AudioOutputService {}
 class MockDeviceCapabilityService extends Mock implements DeviceCapabilityService {}
-class MockCactusLM extends Mock implements CactusLM {}
+
+// Use a known base path so modelSlug comparisons are deterministic in tests.
+const _testModelBase = '/test/models';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late MockConnectivityService connectivity;
   late MockDeviceCapabilityService deviceCapability;
-  late MockCactusLM cactus;
   late VoiceAgentService service;
 
   setUp(() {
     connectivity = MockConnectivityService();
     deviceCapability = MockDeviceCapabilityService();
-    cactus = MockCactusLM();
     service = VoiceAgentService(
       connectivity: connectivity,
       stt: MockSpeechToText(),
@@ -39,7 +38,7 @@ void main() {
       firebaseAI: MockFirebaseAI(),
       audioOutput: MockAudioOutputService(),
       deviceCapability: deviceCapability,
-      cactus: cactus,
+      modelBasePath: _testModelBase,
     );
   });
 

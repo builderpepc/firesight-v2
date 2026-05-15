@@ -4,7 +4,7 @@ publish_to: none
 version: 0.1.0
 
 environment:
-  sdk: ">=3.0.0 <4.0.0"
+  sdk: ">=3.1.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -22,7 +22,8 @@ dependencies:
   firebase_ai: ^3.11.0
 
   # On-device AI: LLM inference, RAG, STT (voice agent tiers 2 & 3)
-  cactus: ^1.3.0
+  # Cactus is source-integrated: lib/cactus.dart (FFI bindings) + jniLibs/arm64-v8a/libcactus.so
+  # See https://docs.cactuscompute.com/latest/flutter/
 
   # Audio I/O
   record: ^6.2.0
