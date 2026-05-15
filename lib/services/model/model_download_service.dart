@@ -2,10 +2,12 @@ import 'dart:io';
 import 'package:archive/archive_io.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart' show StateNotifier;
 
 import '../../core/constants.dart';
 import '../voice/cactus_voice_agent.dart' show kGemma4E2bSlug;
+import 'download_foreground_task.dart' show downloadTaskCallback;
 
 const _kCactusSubdir = 'cactus';
 
@@ -147,8 +149,17 @@ class ModelDownloadNotifier extends StateNotifier<ModelDownloadStatus> {
 
     state = const ModelDownloadInProgress(0.0, 0, 0);
 
+    await FlutterForegroundTask.startService(
+      serviceId: 1001,
+      serviceTypes: [ForegroundServiceTypes.dataSync],
+      notificationTitle: 'Downloading Gemma 4 model',
+      notificationText: 'Starting download… (4.4 GB)',
+      callback: downloadTaskCallback,
+    );
+
     _cancelToken = CancelToken();
     final dio = Dio();
+    int lastNotifiedPct = -1;
 
     try {
       await dio.download(
@@ -164,10 +175,28 @@ class ModelDownloadNotifier extends StateNotifier<ModelDownloadStatus> {
           final fullTotal = total == -1 ? 0 : total;
           final progress = (fullTotal > 0) ? received / fullTotal : null;
           state = ModelDownloadInProgress(progress, received, fullTotal);
+
+          // Update the foreground notification roughly once per percent.
+          final pct = progress != null ? (progress * 100).toInt() : -1;
+          if (pct != lastNotifiedPct) {
+            lastNotifiedPct = pct;
+            final mb = (received / 1024 / 1024).toStringAsFixed(0);
+            final totalMb = fullTotal > 0
+                ? ' / ${(fullTotal / 1024 / 1024).toStringAsFixed(0)} MB'
+                : ' MB';
+            final pctStr = pct >= 0 ? ' ($pct%)' : '';
+            FlutterForegroundTask.updateService(
+              notificationText: '$mb$totalMb$pctStr',
+            );
+          }
         },
       );
 
       state = const ModelDownloadExtracting();
+      await FlutterForegroundTask.updateService(
+        notificationTitle: 'Extracting Gemma 4 model',
+        notificationText: 'Unpacking weight files…',
+      );
       await _extractAll();
 
       if (tmpFile.existsSync()) tmpFile.deleteSync();
@@ -180,6 +209,8 @@ class ModelDownloadNotifier extends StateNotifier<ModelDownloadStatus> {
       }
     } catch (e) {
       state = ModelDownloadFailed('Download failed: $e');
+    } finally {
+      await FlutterForegroundTask.stopService();
     }
   }
 

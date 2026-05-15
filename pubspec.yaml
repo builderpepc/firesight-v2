@@ -46,6 +46,9 @@ dependencies:
   # HTTP client (model downloads)
   dio: ^5.7.0
 
+  # Foreground service — keeps model download alive when screen turns off
+  flutter_foreground_task: ^9.2.2
+
   # Utilities
   connectivity_plus: ^6.0.0
   uuid: ^4.4.0
