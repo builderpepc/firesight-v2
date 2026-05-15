@@ -18,8 +18,8 @@ class AppPaths {
 
 /// HuggingFace model download URLs.
 ///
-/// The weights repo ships ZIP archives containing a single GGUF file.
-/// [ModelDownloadService] downloads the ZIP and extracts the GGUF in place.
+/// ZIP archives contain individual Cactus `.weights` files (not a single GGUF).
+/// [ModelDownloadService] extracts the full archive into a weights directory.
 class ModelUrls {
   static const String gemma4E2bZip =
       'https://huggingface.co/Cactus-Compute/gemma-4-E2B-it/resolve/main/weights/gemma-4-e2b-it-int4.zip';

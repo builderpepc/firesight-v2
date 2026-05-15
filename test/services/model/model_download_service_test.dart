@@ -38,9 +38,9 @@ void main() {
     });
 
     test('ensureDownloaded → Ready when model file already exists', () async {
-      final cactusDir = Directory('${tempDir.path}/cactus')..createSync();
-      File('${cactusDir.path}/gemma-4-e2b-it-int4.gguf')
-          .writeAsBytesSync([1, 2, 3]);
+      final modelDir = Directory('${tempDir.path}/cactus/gemma-4-e2b-it-int4')
+        ..createSync(recursive: true);
+      File('${modelDir.path}/.ready').writeAsBytesSync([]);
 
       final n = _notifier(tempDir, mockConn);
       await n.ensureDownloaded();
@@ -120,18 +120,16 @@ void main() {
           reason: 'Must not end in Failed state after retry attempt');
     });
 
-    test('tmp file is preserved between notifier instances (resume support)',
-        () async {
+    test('notifier construction does not delete existing zip.tmp', () {
+      // A stale .zip.tmp from a previous session must survive construction —
+      // it is deleted only when a fresh _download() run starts.
       final cactusDir = Directory('${tempDir.path}/cactus')..createSync();
-      // The zip partial file is kept for resume on next attempt.
       final tmpFile =
-          File('${cactusDir.path}/gemma-4-e2b-it-int4.gguf.zip.tmp');
+          File('${cactusDir.path}/gemma-4-e2b-it-int4.zip.tmp');
       tmpFile.writeAsBytesSync(List.filled(1024, 0));
 
-      // Constructing a new notifier must not delete the .tmp file.
-      _notifier(tempDir, mockConn);
-      expect(tmpFile.existsSync(), isTrue,
-          reason: '.tmp file must survive notifier construction for resume');
+      _notifier(tempDir, mockConn); // construction must not touch the file
+      expect(tmpFile.existsSync(), isTrue);
     });
   });
 

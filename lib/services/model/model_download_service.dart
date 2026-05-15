@@ -43,12 +43,12 @@ class ModelDownloadInProgress extends ModelDownloadStatus {
   final int totalBytes;
 }
 
-/// ZIP downloaded; extracting GGUF from archive.
+/// ZIP downloaded; extracting weight files from archive.
 class ModelDownloadExtracting extends ModelDownloadStatus {
   const ModelDownloadExtracting();
 }
 
-/// Model file is present on disk and ready for inference.
+/// Model weights directory is present on disk and ready for inference.
 class ModelDownloadReady extends ModelDownloadStatus {
   const ModelDownloadReady();
 }
@@ -63,7 +63,11 @@ class ModelDownloadFailed extends ModelDownloadStatus {
 // Notifier
 // ---------------------------------------------------------------------------
 
-/// Manages the lifecycle of downloading the Gemma 4 E2B GGUF model file.
+/// Manages the lifecycle of downloading the Gemma 4 E2B weight files.
+///
+/// The model is distributed as a ZIP archive containing individual `.weights`
+/// files (Cactus native format). Extraction produces a directory of weight
+/// files that [cactusInit] loads by directory path.
 ///
 /// Call [ensureDownloaded] on app start or when Tier 2 is selected. The
 /// notifier updates its [state] as the download progresses. Callers watch
@@ -77,8 +81,13 @@ class ModelDownloadNotifier extends StateNotifier<ModelDownloadStatus> {
   final Connectivity _connectivity;
   CancelToken? _cancelToken;
 
-  String get _destPath => '${_appDocsDir.path}/$_kCactusSubdir/$kGemma4E2bSlug';
-  String get _zipTmpPath => '$_destPath.zip.tmp';
+  /// Directory where the extracted weight files live.
+  String get _destDir => '${_appDocsDir.path}/$_kCactusSubdir/$kGemma4E2bSlug';
+
+  /// Sentinel file written after a successful extraction.
+  String get _sentinelPath => '$_destDir/.ready';
+
+  String get _zipTmpPath => '$_destDir.zip.tmp';
 
   /// Ensures the model is present, downloading it automatically if on WiFi.
   ///
@@ -90,7 +99,7 @@ class ModelDownloadNotifier extends StateNotifier<ModelDownloadStatus> {
         s is ModelDownloadExtracting) return;
 
     state = const ModelDownloadChecking();
-    if (File(_destPath).existsSync()) {
+    if (File(_sentinelPath).existsSync()) {
       state = const ModelDownloadReady();
       return;
     }
@@ -127,21 +136,16 @@ class ModelDownloadNotifier extends StateNotifier<ModelDownloadStatus> {
   }
 
   Future<void> _download() async {
-    final dir = Directory('${_appDocsDir.path}/$_kCactusSubdir');
-    if (!dir.existsSync()) dir.createSync(recursive: true);
+    final cactusDir = Directory('${_appDocsDir.path}/$_kCactusSubdir');
+    if (!cactusDir.existsSync()) cactusDir.createSync(recursive: true);
 
-    // Resume support: if a partial .zip.tmp exists, send a Range header.
+    // Always start fresh — Dio's download() opens files in write mode, not
+    // append mode, so a Range-based resume would overwrite the tmp file with
+    // only the tail of the ZIP, producing a corrupt archive.
     final tmpFile = File(_zipTmpPath);
-    final existingBytes = tmpFile.existsSync() ? tmpFile.lengthSync() : 0;
-    final headers = existingBytes > 0
-        ? <String, dynamic>{'Range': 'bytes=$existingBytes-'}
-        : <String, dynamic>{};
+    if (tmpFile.existsSync()) tmpFile.deleteSync();
 
-    state = ModelDownloadInProgress(
-      existingBytes > 0 ? null : 0.0,
-      existingBytes,
-      0,
-    );
+    state = const ModelDownloadInProgress(0.0, 0, 0);
 
     _cancelToken = CancelToken();
     final dio = Dio();
@@ -151,24 +155,21 @@ class ModelDownloadNotifier extends StateNotifier<ModelDownloadStatus> {
         ModelUrls.gemma4E2bZip,
         _zipTmpPath,
         cancelToken: _cancelToken,
-        deleteOnError: false,
+        deleteOnError: true,
         options: Options(
-          headers: headers,
           receiveTimeout: null,
           sendTimeout: const Duration(seconds: 30),
         ),
         onReceiveProgress: (received, total) {
-          final totalReceived = existingBytes + received;
-          final fullTotal = total == -1 ? 0 : existingBytes + total;
-          final progress = (fullTotal > 0) ? totalReceived / fullTotal : null;
-          state = ModelDownloadInProgress(progress, totalReceived, fullTotal);
+          final fullTotal = total == -1 ? 0 : total;
+          final progress = (fullTotal > 0) ? received / fullTotal : null;
+          state = ModelDownloadInProgress(progress, received, fullTotal);
         },
       );
 
       state = const ModelDownloadExtracting();
-      await _extractGguf();
+      await _extractAll();
 
-      // Clean up the ZIP temp file.
       if (tmpFile.existsSync()) tmpFile.deleteSync();
       state = const ModelDownloadReady();
     } on DioException catch (e) {
@@ -182,28 +183,35 @@ class ModelDownloadNotifier extends StateNotifier<ModelDownloadStatus> {
     }
   }
 
-  /// Extracts the first `.gguf` file found in [_zipTmpPath] to [_destPath].
-  Future<void> _extractGguf() async {
+  /// Extracts all entries in [_zipTmpPath] to [_destDir], then writes a
+  /// sentinel file so a partial extraction is never mistaken for complete.
+  Future<void> _extractAll() async {
+    final destDir = Directory(_destDir);
+    if (destDir.existsSync()) destDir.deleteSync(recursive: true);
+    destDir.createSync(recursive: true);
+
     final inputStream = InputFileStream(_zipTmpPath);
     try {
       final archive = ZipDecoder().decodeStream(inputStream);
-      for (final file in archive.files) {
-        if (!file.isFile) continue;
-        final name = file.name;
-        if (!name.endsWith('.gguf')) continue;
-
-        final outFile = File(_destPath);
-        final outStream = OutputFileStream(outFile.path);
+      for (final entry in archive.files) {
+        final entryPath = '${destDir.path}/${entry.name}';
+        if (!entry.isFile) {
+          Directory(entryPath).createSync(recursive: true);
+          continue;
+        }
+        File(entryPath).parent.createSync(recursive: true);
+        final outStream = OutputFileStream(entryPath);
         try {
-          file.writeContent(outStream);
+          entry.writeContent(outStream);
         } finally {
           outStream.close();
         }
-        return; // first .gguf found — done
       }
-      throw StateError('No .gguf file found inside ZIP archive.');
     } finally {
       inputStream.close();
     }
+
+    // Write sentinel only after all entries are written.
+    File(_sentinelPath).writeAsBytesSync([]);
   }
 }

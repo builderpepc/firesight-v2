@@ -9,11 +9,11 @@ import 'package:firesight/cactus.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
 
-/// GGUF filename for the Gemma 4 E2B (INT4) variant.
-const kGemma4E2bSlug = 'gemma-4-e2b-it-int4.gguf';
+/// Directory name for the Gemma 4 E2B (INT4) variant weights folder.
+const kGemma4E2bSlug = 'gemma-4-e2b-it-int4';
 
-/// GGUF filename for the Gemma 4 E4B (INT8) variant.
-const kGemma4E4bSlug = 'gemma-4-e4b-it-int8.gguf';
+/// Directory name for the Gemma 4 E4B (INT8) variant weights folder.
+const kGemma4E4bSlug = 'gemma-4-e4b-it-int8';
 
 const _kModelSubdir = 'cactus';
 const _kMaxResponseTokens = 256;
@@ -23,8 +23,8 @@ const _kPauseFor = Duration(seconds: 2);
 /// Tier 2: on-device LLM (Gemma 4 via Cactus FFI) + native STT + native TTS.
 ///
 /// Used when internet is unavailable on a capable device (≥4 GB RAM).
-/// [_modelPath] is the absolute path to the GGUF model file. If the file is
-/// absent when [startListening] is called, a [StateError] is emitted on
+/// [_modelPath] is the absolute path to the Cactus weights directory. If the
+/// directory is absent when [startListening] is called, a [StateError] is emitted on
 /// [errorStream] and listening is aborted. Model download is deferred to a
 /// separate flow — this agent only runs inference.
 class CactusVoiceAgent implements VoiceAgent {
@@ -66,10 +66,10 @@ class CactusVoiceAgent implements VoiceAgent {
     _listening = true;
 
     if (!_modelReady) {
-      if (!File(_modelPath).existsSync()) {
+      if (!Directory(_modelPath).existsSync()) {
         _listening = false;
         _errorController.add(StateError(
-          'Model file not found at $_modelPath. '
+          'Model weights directory not found at $_modelPath. '
           'The model may still be downloading — check the home screen for progress.',
         ));
         return;
