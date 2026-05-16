@@ -10,6 +10,7 @@ import 'package:firesight/models/conversation_history.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/models/observation.dart';
 import 'package:firesight/services/voice/mock_voice_agent.dart';
+import 'package:firesight/services/voice/voice_action.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
 import 'package:firesight/ui/widgets/floorplan_viewer.dart';
 
@@ -201,25 +202,7 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
       return;
     }
 
-    if (agent is MockVoiceAgent) {
-      agent.setToolHandlers(
-        onUploadFloorplan: () async {
-          await _pickFloorplan();
-        },
-        onMarkAsset: (notes) async {
-          if (_session == null) return;
-          final observation = Observation(
-            id: const Uuid().v4(),
-            timestamp: DateTime.now(),
-            text: notes,
-          );
-          await _persistSession(_session!.copyWith(
-            observations: [..._session!.observations, observation],
-          ));
-          if (mounted) setState(() {});
-        },
-      );
-    }
+    if (!mounted) return;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -227,6 +210,11 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
       builder: (context) => _VoiceSessionSheet(
         agent: agent,
         session: _session!,
+        onSessionUpdated: (updated) async {
+          await _persistSession(updated);
+          if (mounted) setState(() {});
+        },
+        onFloorplanRequested: _pickFloorplan,
       ),
     );
   }
@@ -704,24 +692,34 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
 }
 
 class _VoiceMessage {
-  _VoiceMessage(this.text, {required this.fromUser});
+  _VoiceMessage(this.text, {required this.fromUser, this.isSystem = false});
   final String text;
   final bool fromUser;
+  /// System confirmation messages (e.g. "Recorded: …") shown in a muted style.
+  final bool isSystem;
 }
 
-class _VoiceSessionSheet extends StatefulWidget {
-  const _VoiceSessionSheet({required this.agent, required this.session});
+class _VoiceSessionSheet extends ConsumerStatefulWidget {
+  const _VoiceSessionSheet({
+    required this.agent,
+    required this.session,
+    required this.onSessionUpdated,
+    required this.onFloorplanRequested,
+  });
   final VoiceAgent agent;
   final InspectionSession session;
+  final Future<void> Function(InspectionSession) onSessionUpdated;
+  final Future<void> Function() onFloorplanRequested;
 
   @override
-  State<_VoiceSessionSheet> createState() => _VoiceSessionSheetState();
+  ConsumerState<_VoiceSessionSheet> createState() => _VoiceSessionSheetState();
 }
 
-class _VoiceSessionSheetState extends State<_VoiceSessionSheet> {
+class _VoiceSessionSheetState extends ConsumerState<_VoiceSessionSheet> {
   final List<_VoiceMessage> _messages = [];
   StreamSubscription<String>? _transcriptSub;
   StreamSubscription<String>? _responseSub;
+  StreamSubscription<VoiceAction>? _actionSub;
 
   @override
   void initState() {
@@ -734,6 +732,7 @@ class _VoiceSessionSheetState extends State<_VoiceSessionSheet> {
       if (!mounted) return;
       setState(() => _messages.add(_VoiceMessage(text, fromUser: false)));
     });
+    _actionSub = widget.agent.actionStream.listen(_handleAction);
     widget.agent.startListening(widget.session, ConversationHistory());
   }
 
@@ -741,8 +740,49 @@ class _VoiceSessionSheetState extends State<_VoiceSessionSheet> {
   void dispose() {
     _transcriptSub?.cancel();
     _responseSub?.cancel();
+    _actionSub?.cancel();
     widget.agent.stopListening();
     super.dispose();
+  }
+
+  Future<void> _handleAction(VoiceAction action) async {
+    switch (action) {
+      case RecordObservation(:final text):
+        await _persistObservation(text: text);
+      case TakePhoto(:final description):
+        await _takePhotoObservation(description: description);
+      case UploadFloorplan():
+        await widget.onFloorplanRequested();
+    }
+  }
+
+  Future<void> _persistObservation({required String text, String? photoPath}) async {
+    final observation = Observation(
+      id: const Uuid().v4(),
+      timestamp: DateTime.now(),
+      text: text,
+      photoFileRef: photoPath,
+    );
+    final updated = widget.session.copyWith(
+      observations: [...widget.session.observations, observation],
+    );
+    await widget.onSessionUpdated(updated);
+    if (!mounted) return;
+    setState(() => _messages.add(
+      _VoiceMessage('Recorded: "$text"', fromUser: false, isSystem: true),
+    ));
+  }
+
+  Future<void> _takePhotoObservation({String? description}) async {
+    final picker = ImagePicker();
+    final photo = await picker.pickImage(source: ImageSource.camera);
+    if (photo == null || !mounted) return;
+    final service = await ref.read(sessionServiceProvider.future);
+    final permanentPath = await service.saveImage(photo.path);
+    await _persistObservation(
+      text: description ?? 'Photo observation',
+      photoPath: permanentPath,
+    );
   }
 
   @override
@@ -797,6 +837,25 @@ class _VoiceSessionSheetState extends State<_VoiceSessionSheet> {
                       itemCount: _messages.length,
                       itemBuilder: (context, i) {
                         final m = _messages[i];
+                        if (m.isSystem) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Center(
+                              child: Text(
+                                m.text,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .primary,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                              ),
+                            ),
+                          );
+                        }
                         return Align(
                           alignment: m.fromUser
                               ? Alignment.centerRight
@@ -834,6 +893,11 @@ class _VoiceSessionSheetState extends State<_VoiceSessionSheet> {
                       icon: const Icon(Icons.push_pin_outlined),
                       label: const Text('Demo: mark asset'),
                       onPressed: () => mock.simulateCommand('mark asset'),
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.camera_alt_outlined),
+                      label: const Text('Demo: take photo'),
+                      onPressed: () => mock.simulateCommand('take photo'),
                     ),
                   ],
                 ),

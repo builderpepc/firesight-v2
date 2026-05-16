@@ -10,6 +10,7 @@ import 'package:record/record.dart';
 import 'package:firesight/cactus.dart';
 import 'package:firesight/models/conversation_history.dart';
 import 'package:firesight/models/inspection_session.dart';
+import 'package:firesight/services/voice/voice_action.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
 
 // Top-level functions for compute() — must not capture any mutable state.
@@ -89,6 +90,7 @@ class CactusVoiceAgent implements VoiceAgent {
   final _responseController = StreamController<String>.broadcast();
   final _processingController = StreamController<bool>.broadcast();
   final _errorController = StreamController<Object>.broadcast();
+  final _actionController = StreamController<VoiceAction>.broadcast();
 
   @override
   Stream<String> get transcriptStream => _transcriptController.stream;
@@ -101,6 +103,9 @@ class CactusVoiceAgent implements VoiceAgent {
 
   @override
   Stream<Object> get errorStream => _errorController.stream;
+
+  @override
+  Stream<VoiceAction> get actionStream => _actionController.stream;
 
   /// Returns the default on-device path for the given [modelSlug] (filename).
   static Future<String> defaultModelPath(String modelSlug) async {
@@ -253,14 +258,16 @@ class CactusVoiceAgent implements VoiceAgent {
         _runCactusCompleteWithAudio,
         (model.address, systemPrompt, optionsJson, pcm),
       );
-      final response = _extractResponse(rawResponse).trim();
-      if (response.isEmpty) return;
+      final (displayText, action) = _parseResponse(rawResponse);
+      if (displayText.isEmpty) return;
+
+      if (action != null) _actionController.add(action);
 
       _transcriptController.add(ConversationTurn.kAudioPlaceholder);
       history.addUser(ConversationTurn.kAudioPlaceholder);
-      history.addAssistant(response);
+      history.addAssistant(displayText);
 
-      _responseController.add(response);
+      _responseController.add(displayText);
 
       // TTS output — gate VAD while speaking to prevent self-echo.
       _ttsActive = true;
@@ -270,7 +277,7 @@ class CactusVoiceAgent implements VoiceAgent {
       _tts.setCompletionHandler(() {
         if (!speakCompleter.isCompleted) speakCompleter.complete();
       });
-      await _tts.speak(response);
+      await _tts.speak(displayText);
       await speakCompleter.future.timeout(
         const Duration(seconds: 30),
         onTimeout: () {},
@@ -285,14 +292,25 @@ class CactusVoiceAgent implements VoiceAgent {
     }
   }
 
-  /// Extracts the `response` field from a Cactus JSON envelope, or returns
-  /// the raw string if it isn't JSON.
-  static String _extractResponse(String raw) {
+  /// Parses the Cactus JSON response into display text and an optional action.
+  /// Falls back to `(raw, null)` if the response is not valid JSON.
+  static (String, VoiceAction?) _parseResponse(String raw) {
     try {
-      final decoded = jsonDecode(raw) as Map<String, dynamic>;
-      return decoded['response'] as String? ?? '';
+      final json = jsonDecode(raw.trim()) as Map<String, dynamic>;
+      final text = (json['text'] as String? ?? '').trim();
+      final actionJson = json['action'] as Map<String, dynamic>?;
+      if (actionJson == null) return (text, null);
+      final action = switch (actionJson['type'] as String?) {
+        'record_observation' => RecordObservation(
+            (actionJson['text'] as String? ?? '').trim()),
+        'take_photo' => TakePhoto(
+            description: actionJson['description'] as String?),
+        'upload_floorplan' => const UploadFloorplan(),
+        _ => null,
+      };
+      return (text, action);
     } catch (_) {
-      return raw;
+      return (raw.trim(), null);
     }
   }
 
@@ -325,6 +343,7 @@ class CactusVoiceAgent implements VoiceAgent {
     await _responseController.close();
     await _processingController.close();
     await _errorController.close();
+    await _actionController.close();
   }
 
   static String _buildSystemPrompt(InspectionSession session, ConversationHistory history) {
@@ -334,9 +353,22 @@ class CactusVoiceAgent implements VoiceAgent {
     }).join('\n');
 
     return '''You are a fire inspection AI assistant helping a firefighter conduct a pre-incident survey. You are running offline on the inspector's device.
-Listen to the inspector. If they make an observation, confirm you noted it concisely.
-If they ask a question, answer it based on the existing inspection context.
 Keep responses brief (1-2 sentences).
+
+Always respond in this exact JSON format:
+{"text": "<your spoken reply>", "action": <action_or_null>}
+
+Action types:
+  Record observation: {"type": "record_observation", "text": "<observation text>"}
+  Request photo:      {"type": "take_photo", "description": "<what to photograph>"}
+  Upload floorplan:   {"type": "upload_floorplan"}
+
+When the inspector states a factual observation, respond with record_observation immediately.
+When they ask to photograph something, respond with take_photo.
+When they ask to upload or replace the floorplan, respond with upload_floorplan.
+For questions or confirmations, set "action" to null.
+
+Example: {"text": "Noted, blocked exit recorded.", "action": {"type": "record_observation", "text": "North exit blocked by storage equipment"}}
 
 Inspection: ${session.name}
 ${lines.isEmpty ? 'No observations recorded yet.' : 'Existing observations:\n$lines'}${history.toSystemPromptBlock()}''';

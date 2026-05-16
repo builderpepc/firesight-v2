@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:firesight/models/conversation_history.dart';
 import 'package:firesight/models/inspection_session.dart';
+import 'package:firesight/services/voice/voice_action.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -16,6 +17,7 @@ class NativeFallbackAgent implements VoiceAgent {
   final _transcriptController = StreamController<String>.broadcast();
   final _responseController = StreamController<String>.broadcast();
   final _processingController = StreamController<bool>.broadcast();
+  final _actionController = StreamController<VoiceAction>.broadcast();
 
   @override
   Stream<String> get transcriptStream => _transcriptController.stream;
@@ -28,6 +30,9 @@ class NativeFallbackAgent implements VoiceAgent {
 
   @override
   Stream<Object> get errorStream => const Stream.empty();
+
+  @override
+  Stream<VoiceAction> get actionStream => _actionController.stream;
 
   @override
   Future<void> startListening(InspectionSession session, ConversationHistory history) async {
@@ -47,6 +52,7 @@ class NativeFallbackAgent implements VoiceAgent {
     await _transcriptController.close();
     await _responseController.close();
     await _processingController.close();
+    await _actionController.close();
     await _stt.cancel();
     await _tts.stop();
   }

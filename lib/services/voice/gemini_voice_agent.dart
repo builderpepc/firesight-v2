@@ -5,6 +5,7 @@ import 'package:record/record.dart';
 import 'package:firesight/models/conversation_history.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/services/audio/audio_output_service.dart';
+import 'package:firesight/services/voice/voice_action.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
 
 // Vertex AI native-audio model (audio in, audio out + transcription).
@@ -53,6 +54,7 @@ class GeminiVoiceAgent implements VoiceAgent {
   final _responseController = StreamController<String>.broadcast();
   final _processingController = StreamController<bool>.broadcast();
   final _errorController = StreamController<Object>.broadcast();
+  final _actionController = StreamController<VoiceAction>.broadcast();
 
   @override
   Stream<String> get transcriptStream => _transcriptController.stream;
@@ -65,6 +67,9 @@ class GeminiVoiceAgent implements VoiceAgent {
 
   @override
   Stream<Object> get errorStream => _errorController.stream;
+
+  @override
+  Stream<VoiceAction> get actionStream => _actionController.stream;
 
   @override
   Future<void> startListening(InspectionSession session, ConversationHistory history) async {
@@ -84,6 +89,33 @@ class GeminiVoiceAgent implements VoiceAgent {
         inputAudioTranscription: AudioTranscriptionConfig(),
         outputAudioTranscription: AudioTranscriptionConfig(),
       ),
+      tools: [
+        Tool.functionDeclarations([
+          FunctionDeclaration(
+            'record_observation',
+            'Records a text observation stated by the inspector.',
+            parameters: {
+              'text': Schema.string(
+                description: 'The observation exactly as stated by the inspector.',
+              ),
+            },
+          ),
+          FunctionDeclaration(
+            'take_photo',
+            'Requests the inspector to photograph something.',
+            parameters: {
+              'description': Schema.string(
+                description: 'What should be photographed.',
+              ),
+            },
+          ),
+          FunctionDeclaration(
+            'upload_floorplan',
+            'Asks the inspector to upload or replace the building floorplan.',
+            parameters: {},
+          ),
+        ]),
+      ],
     );
 
     _session = await liveModel.connect();
@@ -171,13 +203,15 @@ class GeminiVoiceAgent implements VoiceAgent {
       _responseBuffer.write(responseText);
     }
 
-    // Agent reply audio — feed PCM chunks directly to the speaker.
+    // Agent reply audio and function calls.
     final parts = msg.modelTurn?.parts;
     if (parts != null) {
       for (final part in parts) {
         if (part is InlineDataPart && part.mimeType.startsWith('audio')) {
           _geminiSpeaking = true;
           _audioOutput.addChunk(part.bytes);
+        } else if (part is FunctionCall) {
+          _handleFunctionCall(part);
         }
       }
     }
@@ -206,6 +240,25 @@ class GeminiVoiceAgent implements VoiceAgent {
     }
   }
 
+  void _handleFunctionCall(FunctionCall call) {
+    switch (call.name) {
+      case 'record_observation':
+        final text = call.args['text'] as String?;
+        if (text != null && text.isNotEmpty) {
+          _actionController.add(RecordObservation(text));
+        }
+      case 'take_photo':
+        final description = call.args['description'] as String?;
+        _actionController.add(TakePhoto(description: description));
+      case 'upload_floorplan':
+        _actionController.add(const UploadFloorplan());
+    }
+    // Acknowledge — the Live API requires a FunctionResponse to continue.
+    _session?.sendToolResponse([
+      FunctionResponse(call.name, {'success': true}, id: call.id),
+    ]);
+  }
+
   Future<void> _waitForPlaybackDone() async {
     await _audioOutput.waitForPlaybackDone();
     _geminiSpeaking = false;
@@ -225,8 +278,12 @@ class GeminiVoiceAgent implements VoiceAgent {
     }).join('\n');
 
     return '''You are a fire inspection AI assistant helping a firefighter conduct a pre-incident survey.
-Listen to the inspector. If they make an observation, confirm you noted it concisely.
-If they ask a question, answer it based on the existing inspection context.
+
+When the inspector states a factual observation (e.g. "blocked exit", "sprinkler head missing", "door is damaged"), call record_observation immediately with their exact words — do not ask for confirmation first.
+When the inspector asks to photograph or document something visually, call take_photo.
+When the inspector asks to upload or replace the floorplan, call upload_floorplan.
+Confirm each recorded observation with a brief spoken acknowledgement (one sentence).
+For questions, answer concisely based on the inspection context.
 
 Inspection: ${session.name}
 ${lines.isEmpty ? 'No observations recorded yet.' : 'Existing observations:\n$lines'}${history.toSystemPromptBlock()}''';
@@ -239,5 +296,6 @@ ${lines.isEmpty ? 'No observations recorded yet.' : 'Existing observations:\n$li
     await _responseController.close();
     await _processingController.close();
     await _errorController.close();
+    await _actionController.close();
   }
 }
