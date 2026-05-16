@@ -8,7 +8,7 @@ import 'inspection_form.dart';
 part 'inspection_session.g.dart';
 
 /// Represents a complete inspection session with observations.
-@JsonSerializable()
+@JsonSerializable(explicitToJson: true)
 class InspectionSession extends Equatable {
   const InspectionSession({
     required this.id,

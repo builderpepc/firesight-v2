@@ -6,7 +6,9 @@ part 'form_field_suggestion.g.dart';
 enum AutofillSource {
   @JsonValue('rule_based')
   ruleBased,
+  @JsonValue('cactus')
   cactus,
+  @JsonValue('gemini')
   gemini,
   @JsonValue('user_edited')
   userEdited,

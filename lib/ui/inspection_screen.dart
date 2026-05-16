@@ -25,6 +25,7 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
   InspectionSession? _session;
   bool _isLoading = true;
   bool _pinModeEnabled = false;
+  bool _isAutofilling = false;
   late final TextEditingController _nameController;
   late final TextEditingController _inspectorController;
   late final Map<String, TextEditingController> _formControllers;
@@ -149,6 +150,7 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
         ],
       ),
     );
+    noteController.dispose();
 
     if (note != null) {
       final service = await ref.read(sessionServiceProvider.future);
@@ -560,7 +562,8 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
           bottom: MediaQuery.of(context).viewInsets.bottom,
         ),
         child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.85,
+          height: MediaQuery.of(context).size.height * 0.85 -
+              MediaQuery.of(context).viewInsets.bottom,
           child: SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -664,35 +667,53 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
   }
 
   Future<void> _autofillForm() async {
-    if (_session == null) return;
+    if (_session == null || _isAutofilling) return;
+    setState(() => _isAutofilling = true);
+    try {
+      _syncSessionFormFromControllers();
+      final service = ref.read(formAutofillServiceProvider);
+      final result = await service.autofill(
+        currentForm: _session!.form,
+        observations: _session!.observations,
+      );
 
-    _syncSessionFormFromControllers();
-    final service = ref.read(formAutofillServiceProvider);
-    final result = await service.autofill(
-      currentForm: _session!.form,
-      observations: _session!.observations,
-    );
+      // Merge suggestions by fieldId so repeated autofill runs don't accumulate
+      // duplicates — the newest suggestion for each field wins.
+      final mergedSuggestions = {
+        for (final s in [
+          ..._session!.formSuggestions,
+          ...result.suggestions,
+        ])
+          s.fieldId: s,
+      }.values.toList();
 
-    final updatedSession = _session!.copyWith(
-      form: result.form,
-      formSuggestions: [
-        ..._session!.formSuggestions,
-        ...result.suggestions,
-      ],
-    );
+      final updatedSession = _session!.copyWith(
+        form: result.form,
+        formSuggestions: mergedSuggestions,
+      );
 
-    await _persistSession(updatedSession);
-    if (!mounted) return;
-    setState(() {
-      _syncControllersFromForm(result.form);
-    });
+      await _persistSession(updatedSession);
+      if (!mounted) return;
+      setState(() {
+        _syncControllersFromForm(result.form);
+      });
+    } finally {
+      if (mounted) setState(() => _isAutofilling = false);
+    }
   }
 
   Future<void> _exportPdf() async {
     if (_session == null) return;
-
     _syncSessionFormFromControllers();
-    await ref.read(pdfExportServiceProvider).generateAndShare(_session!);
+    try {
+      await ref.read(pdfExportServiceProvider).generateAndShare(_session!);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF export failed: $e')),
+        );
+      }
+    }
   }
 
   void _syncSessionFormFromControllers() {
@@ -759,7 +780,7 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
                 ),
                 TextButton.icon(
                   onPressed:
-                      _session!.observations.isEmpty ? null : _autofillForm,
+                      (_session!.observations.isEmpty || _isAutofilling) ? null : _autofillForm,
                   icon: const Icon(Icons.auto_fix_high),
                   label: const Text('Autofill'),
                   style: TextButton.styleFrom(

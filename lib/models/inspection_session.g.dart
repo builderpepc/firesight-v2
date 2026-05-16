@@ -42,14 +42,16 @@ Map<String, dynamic> _$InspectionSessionToJson(InspectionSession instance) =>
       'name': instance.name,
       'createdAt': instance.createdAt.toIso8601String(),
       'updatedAt': instance.updatedAt.toIso8601String(),
-      'observations': instance.observations,
-      'building_documents': instance.buildingDocuments,
+      'observations': instance.observations.map((e) => e.toJson()).toList(),
+      'building_documents':
+          instance.buildingDocuments.map((e) => e.toJson()).toList(),
       'floorplan_path': instance.floorplanPath,
       'zip_code': instance.zipCode,
       'building_type': instance.buildingType,
       'status': instance.status,
       'inspector_id': instance.inspectorId,
       'risk_level': instance.riskLevel,
-      'form': instance.form,
-      'form_suggestions': instance.formSuggestions,
+      'form': instance.form.toJson(),
+      'form_suggestions':
+          instance.formSuggestions.map((e) => e.toJson()).toList(),
     };

@@ -165,7 +165,9 @@ class RuleBasedFormAutofillEngine implements FormAutofillEngine {
 
   bool _containsAny(String text, List<String> terms) {
     final lower = text.toLowerCase();
-    return terms.any(lower.contains);
+    return terms.any(
+      (term) => RegExp(r'\b' + RegExp.escape(term) + r'\b').hasMatch(lower),
+    );
   }
 
   String _sentenceValue(String text) => _cleanValue(text);
@@ -179,22 +181,22 @@ class RuleBasedFormAutofillEngine implements FormAutofillEngine {
 
   static final _alarmPanelPatterns = [
     RegExp(
-      r'alarm panel (?:is |is located |located |located in |located at )?(?:in |at |near |by )?(.+)',
+      r'alarm panel (?:is |is located |located |located in |located at )?(?:in |at |near |by )?([^.!?,;]+)',
       caseSensitive: false,
     ),
     RegExp(
-      r'fire alarm panel (?:is |is located |located |located in |located at )?(?:in |at |near |by )?(.+)',
+      r'fire alarm panel (?:is |is located |located |located in |located at )?(?:in |at |near |by )?([^.!?,;]+)',
       caseSensitive: false,
     ),
   ];
 
   static final _sprinklerRiserPatterns = [
     RegExp(
-      r'sprinkler riser (?:is |is located |located |located in |located at )?(?:in |at |near |by )?(.+)',
+      r'sprinkler riser (?:is |is located |located |located in |located at )?(?:in |at |near |by )?([^.!?,;]+)',
       caseSensitive: false,
     ),
     RegExp(
-      r'riser (?:is |is located |located |located in |located at )?(?:in |at |near |by )?(.+)',
+      r'riser (?:is |is located |located |located in |located at )?(?:in |at |near |by )?([^.!?,;]+)',
       caseSensitive: false,
     ),
   ];
