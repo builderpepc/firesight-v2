@@ -49,10 +49,12 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
     updatedAt: DateTime.now(),
   );
 
+  bool _isProcessing = false;
   final List<_LogEntry> _transcripts = [];
   final List<_LogEntry> _responses = [];
   StreamSubscription<String>? _transcriptSub;
   StreamSubscription<String>? _responseSub;
+  StreamSubscription<bool>? _processingSub;
   StreamSubscription<Object>? _errorSub;
   StreamSubscription<bool>? _onlineSub;
 
@@ -112,6 +114,7 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
       // Without this, broadcast streams deliver to stale listeners after an error restart.
       await _transcriptSub?.cancel();
       await _responseSub?.cancel();
+      await _processingSub?.cancel();
       await _errorSub?.cancel();
 
       final agent = await _resolveAgent();
@@ -121,6 +124,9 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
       });
       _responseSub = agent.responseStream.listen((text) {
         if (mounted) setState(() => _responses.add(_LogEntry(text)));
+      });
+      _processingSub = agent.processingStream.listen((processing) {
+        if (mounted) setState(() => _isProcessing = processing);
       });
       _errorSub = agent.errorStream.listen((error) {
         if (mounted) {
@@ -162,11 +168,13 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
     if (mounted) {
       setState(() {
         _isListening = false;
+        _isProcessing = false;
         _tierLabel = 'Idle';
       });
     }
     await _transcriptSub?.cancel();
     await _responseSub?.cancel();
+    await _processingSub?.cancel();
     await _errorSub?.cancel();
     _agent?.stopListening();
   }
@@ -207,7 +215,14 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _StatusRow(isOnline: _isOnline, tierLabel: _tierLabel),
-            const SizedBox(height: 12),
+            const SizedBox(height: 4),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: _isProcessing
+                  ? const LinearProgressIndicator(key: ValueKey('proc'))
+                  : const SizedBox(height: 4, key: ValueKey('idle')),
+            ),
+            const SizedBox(height: 8),
             _TierOverrideDropdown(
               value: _tierOverride,
               enabled: !_isListening,

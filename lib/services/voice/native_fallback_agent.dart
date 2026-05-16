@@ -15,12 +15,16 @@ class NativeFallbackAgent implements VoiceAgent {
 
   final _transcriptController = StreamController<String>.broadcast();
   final _responseController = StreamController<String>.broadcast();
+  final _processingController = StreamController<bool>.broadcast();
 
   @override
   Stream<String> get transcriptStream => _transcriptController.stream;
 
   @override
   Stream<String> get responseStream => _responseController.stream;
+
+  @override
+  Stream<bool> get processingStream => _processingController.stream;
 
   @override
   Stream<Object> get errorStream => const Stream.empty();
@@ -42,6 +46,7 @@ class NativeFallbackAgent implements VoiceAgent {
   Future<void> dispose() async {
     await _transcriptController.close();
     await _responseController.close();
+    await _processingController.close();
     await _stt.cancel();
     await _tts.stop();
   }

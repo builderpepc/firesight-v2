@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter_soloud/flutter_soloud.dart';
 
@@ -37,6 +38,44 @@ class AudioOutputService {
     return h != null &&
         SoLoud.instance.isInitialized &&
         SoLoud.instance.getIsValidVoiceHandle(h);
+  }
+
+  /// Signals to SoLoud that no more audio data will be pushed for this turn.
+  ///
+  /// Must be called when the model finishes its turn so SoLoud drains the
+  /// remaining buffer and fires [AudioSource.allInstancesFinished]. Without
+  /// this, [BufferingType.released] keeps the handle alive indefinitely
+  /// waiting for more chunks.
+  void signalTurnComplete() {
+    final s = _stream;
+    if (s != null && SoLoud.instance.isInitialized) {
+      SoLoud.instance.setDataIsEnded(s);
+    }
+  }
+
+  /// Resolves when the current playback stream finishes draining, or
+  /// immediately if nothing is playing. Call [signalTurnComplete] first so
+  /// SoLoud knows to close the stream when the buffer empties.
+  Future<void> waitForPlaybackDone({
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    final s = _stream;
+    if (s == null || !isPlaying) return;
+
+    final completer = Completer<void>();
+    final sub = s.allInstancesFinished.listen(
+      (_) { if (!completer.isCompleted) completer.complete(); },
+    );
+
+    // Re-check after subscribing in case buffer already drained.
+    if (!isPlaying) {
+      await sub.cancel();
+      return;
+    }
+
+    await completer.future
+        .timeout(timeout, onTimeout: () {})
+        .whenComplete(sub.cancel);
   }
 
   /// Signals end-of-data and stops any active playback stream.

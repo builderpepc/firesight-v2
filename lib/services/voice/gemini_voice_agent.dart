@@ -41,6 +41,8 @@ class GeminiVoiceAgent implements VoiceAgent {
   // self-echo. SoLoud bypasses Android's audio track so hardware AEC has no
   // reference signal; software gating is the only reliable option.
   bool _geminiSpeaking = false;
+  // Guards processingStream so we emit true only once per turn.
+  bool _processingEmitted = false;
 
   // Accumulates partial outputTranscription chunks until turnComplete.
   final _responseBuffer = StringBuffer();
@@ -49,6 +51,7 @@ class GeminiVoiceAgent implements VoiceAgent {
 
   final _transcriptController = StreamController<String>.broadcast();
   final _responseController = StreamController<String>.broadcast();
+  final _processingController = StreamController<bool>.broadcast();
   final _errorController = StreamController<Object>.broadcast();
 
   @override
@@ -56,6 +59,9 @@ class GeminiVoiceAgent implements VoiceAgent {
 
   @override
   Stream<String> get responseStream => _responseController.stream;
+
+  @override
+  Stream<bool> get processingStream => _processingController.stream;
 
   @override
   Stream<Object> get errorStream => _errorController.stream;
@@ -132,6 +138,7 @@ class GeminiVoiceAgent implements VoiceAgent {
     _transcriptBuffer.clear();
     _history = null;
     _geminiSpeaking = false;
+    _processingEmitted = false;
     await _audioOutput.stopPlayback();
     // close() can hang if the socket is already broken; cap at 2 s.
     await _session?.close().timeout(
@@ -150,6 +157,12 @@ class GeminiVoiceAgent implements VoiceAgent {
     if (transcriptText != null && transcriptText.isNotEmpty) {
       _transcriptController.add(transcriptText);
       _transcriptBuffer.write(transcriptText);
+      // First inputTranscription means Gemini has heard the user and is
+      // generating a response — emit processing=true once per turn.
+      if (!_processingEmitted) {
+        _processingEmitted = true;
+        _processingController.add(true);
+      }
     }
 
     // Accumulate partial output transcription; emit as one entry per turn.
@@ -183,24 +196,20 @@ class GeminiVoiceAgent implements VoiceAgent {
 
       _transcriptBuffer.clear();
       _responseBuffer.clear();
+      _processingEmitted = false;
 
-      // SoLoud's buffer may still be draining after turnComplete. Keep mic
-      // suppressed until playback actually finishes, then re-enable.
+      // Tell SoLoud no more chunks are coming so it drains the buffer and
+      // fires allInstancesFinished. Without this, BufferingType.released
+      // keeps the handle alive indefinitely waiting for more data.
+      _audioOutput.signalTurnComplete();
       _waitForPlaybackDone();
     }
   }
 
-  // Polls AudioOutputService until SoLoud's buffer drains, then clears the
-  // speaking gate. Caps at 30 s to prevent a stuck state if SoLoud reports
-  // isPlaying indefinitely (e.g. if handle tracking drifts).
   Future<void> _waitForPlaybackDone() async {
-    const pollInterval = Duration(milliseconds: 100);
-    const maxWait = Duration(seconds: 30);
-    final deadline = DateTime.now().add(maxWait);
-    while (_audioOutput.isPlaying && DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(pollInterval);
-    }
+    await _audioOutput.waitForPlaybackDone();
     _geminiSpeaking = false;
+    _processingController.add(false);
   }
 
   /// Serialises session context and prior conversation history into a system instruction.
@@ -228,6 +237,7 @@ ${lines.isEmpty ? 'No observations recorded yet.' : 'Existing observations:\n$li
     await stopListening();
     await _transcriptController.close();
     await _responseController.close();
+    await _processingController.close();
     await _errorController.close();
   }
 }

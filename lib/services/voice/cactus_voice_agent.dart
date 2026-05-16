@@ -87,6 +87,7 @@ class CactusVoiceAgent implements VoiceAgent {
 
   final _transcriptController = StreamController<String>.broadcast();
   final _responseController = StreamController<String>.broadcast();
+  final _processingController = StreamController<bool>.broadcast();
   final _errorController = StreamController<Object>.broadcast();
 
   @override
@@ -94,6 +95,9 @@ class CactusVoiceAgent implements VoiceAgent {
 
   @override
   Stream<String> get responseStream => _responseController.stream;
+
+  @override
+  Stream<bool> get processingStream => _processingController.stream;
 
   @override
   Stream<Object> get errorStream => _errorController.stream;
@@ -237,6 +241,7 @@ class CactusVoiceAgent implements VoiceAgent {
     final model = _model;
     if (model == null || _processing) return;
     _processing = true;
+    _processingController.add(true);
 
     try {
       // Single cactusComplete call with audio + inspection context + prior history.
@@ -276,6 +281,7 @@ class CactusVoiceAgent implements VoiceAgent {
       _errorController.add(e);
     } finally {
       _processing = false;
+      _processingController.add(false);
     }
   }
 
@@ -317,6 +323,7 @@ class CactusVoiceAgent implements VoiceAgent {
     _modelReady = false;
     await _transcriptController.close();
     await _responseController.close();
+    await _processingController.close();
     await _errorController.close();
   }
 
