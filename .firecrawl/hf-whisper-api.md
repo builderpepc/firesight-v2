@@ -1,0 +1,3 @@
+```json
+{"_id":"6a02efb4474252558130928e","id":"Cactus-Compute/whisper-large-v3-cq","private":false,"tags":["region:us"],"downloads":0,"likes":0,"modelId":"Cactus-Compute/whisper-large-v3-cq","author":"Cactus-Compute","sha":"3a89a2455bb95082a279b3580323b66e31efa9ed","lastModified":"2026-05-12T09:19:49.000Z","gated":false,"disabled":false,"config":{},"siblings":[{"rfilename":".gitattributes"},{"rfilename":"CQ4.zip"}],"spaces":[],"createdAt":"2026-05-12T09:15:32.000Z","usedStorage":741595684}
+```

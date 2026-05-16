@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart' show StateNotifierProvider;
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:speech_to_text/speech_to_text.dart';
@@ -13,26 +14,44 @@ import '../services/connectivity/connectivity_service.dart';
 import '../services/device/device_capability_service.dart';
 import '../services/pdf/pdf_export_service.dart';
 import '../services/session/session_service.dart';
+import '../services/session/local_session_storage.dart';
 import '../services/session/session_storage.dart';
+import '../services/session/session_export.dart';
 import '../services/tts/tts_service.dart';
 import '../services/model/model_download_service.dart';
 import '../services/voice/voice_agent_service.dart';
+import '../models/session_metadata.dart';
 
 /// Base path for all app documents (async — resolved once at startup).
 final appDocsDirProvider = FutureProvider<Directory>((ref) async {
   return getApplicationDocumentsDirectory();
 });
 
-/// Session storage (disk I/O). Depends on the resolved documents directory.
+/// Session storage (file-based per PROJECT.md: `sessions/<id>/session.json`
+/// + `photos/` + `sessions/index.json`).
 final sessionStorageProvider = FutureProvider<SessionStorage>((ref) async {
   final dir = await ref.watch(appDocsDirProvider.future);
-  return SessionStorage(dir.path);
+  final storage = LocalSessionStorage(dir.path);
+  await storage.ensureInitialized();
+  return storage;
 });
 
 /// CRUD operations for inspection sessions.
 final sessionServiceProvider = FutureProvider<SessionService>((ref) async {
   final storage = await ref.watch(sessionStorageProvider.future);
   return SessionService(storage);
+});
+
+/// List of all session metadata.
+final sessionsProvider = FutureProvider<List<SessionMetadata>>((ref) async {
+  final service = await ref.watch(sessionServiceProvider.future);
+  return service.listSessions();
+});
+
+/// Session export service.
+final sessionExportProvider = FutureProvider<SessionExport>((ref) async {
+  final storage = await ref.watch(sessionStorageProvider.future);
+  return SessionExport(storage);
 });
 
 /// Network connectivity (interface-level).

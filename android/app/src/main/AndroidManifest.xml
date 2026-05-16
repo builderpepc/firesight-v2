@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <application
         android:label="firesight"
         android:name="${applicationName}"
@@ -36,6 +37,17 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- emoji2 is pulled in transitively but its startup initializer class
+             is not on the classpath; remove it to prevent a crash on launch. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+                tools:node="remove" />
+        </provider>
     </application>
 
     <!-- Permissions for FireSight -->

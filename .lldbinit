@@ -1,0 +1,9 @@
+# FireSight LLDB configuration
+#
+# To use this file, either:
+# 1. Add 'command source /path/to/this/.lldbinit' to your ~/.lldbinit
+# 2. Or run LLDB with '--local-lldbinit' (requires 'settings set target.load-cwd-lldbinit true' in global ~/.lldbinit)
+
+# Automatically continue when hitting the internal Flutter/Dart VM RX page breakpoint.
+# This prevents annoying stops during app startup in debug mode.
+breakpoint set -n NOTIFY_DEBUGGER_ABOUT_RX_PAGES -C continue

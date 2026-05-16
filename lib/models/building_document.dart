@@ -27,6 +27,22 @@ class BuildingDocument extends Equatable {
 
   Map<String, dynamic> toJson() => _$BuildingDocumentToJson(this);
 
+  BuildingDocument copyWith({
+    String? id,
+    String? fileName,
+    String? filePath,
+    DateTime? uploadedAt,
+    String? preprocessedText,
+  }) {
+    return BuildingDocument(
+      id: id ?? this.id,
+      fileName: fileName ?? this.fileName,
+      filePath: filePath ?? this.filePath,
+      uploadedAt: uploadedAt ?? this.uploadedAt,
+      preprocessedText: preprocessedText ?? this.preprocessedText,
+    );
+  }
+
   @override
   List<Object?> get props => [id, fileName, filePath, uploadedAt, preprocessedText];
 }

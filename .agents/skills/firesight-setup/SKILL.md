@@ -142,7 +142,7 @@ Without billing, API calls will fail at runtime with a WebSocket 1008 error.
 ## Phase 3 — iOS Setup
 
 iOS setup has been verified on macOS with Xcode, CocoaPods, Flutter 3.41.9, and an iOS 26.4
-simulator. Keep the iOS deployment target at **15.0** because the current FlutterFire pods
+simulator. Keep the iOS deployment target at **16.0** because the current FlutterFire pods
 (`firebase_core`, `firebase_auth`, and `firebase_ai`) require iOS 15 or newer.
 
 ### Required checked-in scaffold
@@ -179,7 +179,7 @@ flutter precache --ios
 ```
 
 If `pod install` says Firebase pods require a higher minimum deployment target, confirm the
-project and `ios/Podfile` are still set to `15.0`.
+project and `ios/Podfile` are still set to `16.0`.
 
 ### Build and run on an iOS simulator
 
@@ -497,7 +497,7 @@ adb shell input tap <cx> <cy>
 |-------|-----|
 | `google-services.json not found` | Run `flutterfire configure --project=firesight-app` |
 | `GoogleService-Info.plist not found` | Run `flutterfire configure --project=firesight-app` or restore `ios/Runner/GoogleService-Info.plist` |
-| Firebase pod requires a higher minimum deployment target | Keep iOS deployment target and `ios/Podfile` at `15.0` |
+| Firebase pod requires a higher minimum deployment target | Keep iOS deployment target and `ios/Podfile` at `16.0` |
 | `Flutter.xcframework must exist` during `pod install` | Run `flutter precache --ios`, then rerun `pod install` |
 | CocoaPods warns it did not set base configuration | Include Pods xcconfigs from `ios/Flutter/Debug.xcconfig`, `Release.xcconfig`, and `Profile.xcconfig` |
 | CoreSimulatorService connection errors | Rerun `xcrun simctl ...` with normal macOS permissions; restart Simulator if needed |

@@ -3,7 +3,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart' show StateNotifier;
+import 'package:flutter_riverpod/legacy.dart' show StateNotifier;
 
 import '../../core/constants.dart';
 import '../voice/cactus_voice_agent.dart' show kGemma4E2bSlug;

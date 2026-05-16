@@ -6,7 +6,9 @@
 *.swp
 .buildlog/
 .history
-
+.env
+.DS_Store
+**/.DS_Store
 
 
 # Flutter repo-specific

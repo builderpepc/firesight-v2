@@ -20,6 +20,12 @@ InspectionSession _$InspectionSessionFromJson(Map<String, dynamic> json) =>
               ?.map((e) => BuildingDocument.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
+      floorplanPath: json['floorplan_path'] as String?,
+      zipCode: json['zip_code'] as String?,
+      buildingType: json['building_type'] as String?,
+      status: json['status'] as String?,
+      inspectorId: json['inspector_id'] as String?,
+      riskLevel: json['risk_level'] as String?,
     );
 
 Map<String, dynamic> _$InspectionSessionToJson(InspectionSession instance) =>
@@ -30,4 +36,10 @@ Map<String, dynamic> _$InspectionSessionToJson(InspectionSession instance) =>
       'updatedAt': instance.updatedAt.toIso8601String(),
       'observations': instance.observations,
       'building_documents': instance.buildingDocuments,
+      'floorplan_path': instance.floorplanPath,
+      'zip_code': instance.zipCode,
+      'building_type': instance.buildingType,
+      'status': instance.status,
+      'inspector_id': instance.inspectorId,
+      'risk_level': instance.riskLevel,
     };

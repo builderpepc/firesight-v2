@@ -25,6 +25,7 @@ class ModelUrls {
       'https://huggingface.co/Cactus-Compute/gemma-4-E2B-it/resolve/main/weights/gemma-4-e2b-it-int4.zip';
 }
 
+
 /// Timeouts (milliseconds)
 class Timeouts {
   static const int defaultTimeout = 30000;

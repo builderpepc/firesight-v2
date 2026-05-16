@@ -38,9 +38,9 @@ For full details, see `PROJECT.md`.
   - Use `xcrun simctl boot <simulator-udid>` and `open -a Simulator` to start one.
   - Use `flutter run -d <simulator-udid>` to run the app on iOS Simulator.
   - Use `flutter build ios --no-codesign` for a compile-only iOS verification.
-  - iOS currently requires CocoaPods and deployment target 15.0 because the FlutterFire pods require iOS 15+.
-- Always implement features with cross-platform compatibility in mind.
-  - Much of the architecture is cross-platform out of the box (e.g. Flutter, Cactus Flutter SDK).
+  - iOS currently requires CocoaPods and deployment target 16.0 because the Cactus framework (v1.3.0+) and FlutterFire pods require iOS 16+.
+  - **Debugging:** If the app stops at `NOTIFY_DEBUGGER_ABOUT_RX_PAGES` in LLDB, this is a normal Flutter/Dart VM behavior. Use the provided `.lldbinit` to automatically continue past these breakpoints.
+  - Always implement features with cross-platform compatibility in mind.  - Much of the architecture is cross-platform out of the box (e.g. Flutter, Cactus Flutter SDK).
   - Some dependencies have both iOS and Android versions available (e.g. Meta Glasses SDK).
   - Without devices/emulators from both platforms available, it may be challenging to implement features for both platforms. You should design abstractions to cleanly handle both cases, and leave stubs for components which cannot be verifiably implemented due to platform limitations. This should be communicated clearly to the developer and included in PR descriptions.
 - Use the GitHub CLI (`gh`) to interact with GitHub-specific features outside of `git`'s scope (like PRs). 
