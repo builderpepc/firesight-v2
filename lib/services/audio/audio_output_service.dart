@@ -31,6 +31,14 @@ class AudioOutputService {
     SoLoud.instance.addAudioDataStream(_stream!, bytes);
   }
 
+  /// True while SoLoud still has buffered audio playing.
+  bool get isPlaying {
+    final h = _handle;
+    return h != null &&
+        SoLoud.instance.isInitialized &&
+        SoLoud.instance.getIsValidVoiceHandle(h);
+  }
+
   /// Signals end-of-data and stops any active playback stream.
   Future<void> stopPlayback() async {
     final s = _stream;

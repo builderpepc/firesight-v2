@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firesight/core/di.dart';
+import 'package:firesight/models/conversation_history.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/services/model/model_download_service.dart';
 import 'package:firesight/services/voice/cactus_voice_agent.dart' show CactusVoiceAgent, kGemma4E2bSlug;
@@ -32,11 +33,21 @@ class DebugVoiceScreen extends ConsumerStatefulWidget {
 
 class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
   VoiceAgent? _agent;
+  CactusVoiceAgent? _cachedCactusAgent;
   bool _isListening = false;
   bool _isOnline = false;
   String _tierLabel = 'Idle';
   String? _errorMessage;
   _TierOverride _tierOverride = _TierOverride.auto;
+
+  // Persisted across stop/start and tier switches for the lifetime of this screen.
+  final _conversationHistory = ConversationHistory();
+  late final InspectionSession _debugSession = InspectionSession(
+    id: 'debug-session',
+    name: 'Debug Session',
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
 
   final List<_LogEntry> _transcripts = [];
   final List<_LogEntry> _responses = [];
@@ -73,8 +84,11 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
           ref.read(audioOutputServiceProvider),
         );
       case _TierOverride.tier2e2b:
-        final path = await CactusVoiceAgent.defaultModelPath(kGemma4E2bSlug);
-        return CactusVoiceAgent(path, ref.read(sttProvider), ref.read(ttsProvider));
+        _cachedCactusAgent ??= CactusVoiceAgent(
+          await CactusVoiceAgent.defaultModelPath(kGemma4E2bSlug),
+          ref.read(ttsProvider),
+        );
+        return _cachedCactusAgent!;
       case _TierOverride.tier3:
         return NativeFallbackAgent(ref.read(sttProvider), ref.read(ttsProvider));
     }
@@ -94,14 +108,13 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
     });
 
     try {
-      final agent = await _resolveAgent();
+      // Cancel any live subscriptions from a previous session before creating new ones.
+      // Without this, broadcast streams deliver to stale listeners after an error restart.
+      await _transcriptSub?.cancel();
+      await _responseSub?.cancel();
+      await _errorSub?.cancel();
 
-      final session = InspectionSession(
-        id: 'debug-session',
-        name: 'Debug Session',
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
+      final agent = await _resolveAgent();
 
       _transcriptSub = agent.transcriptStream.listen((text) {
         if (mounted) setState(() => _transcripts.add(_LogEntry(text)));
@@ -119,7 +132,7 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
         }
       });
 
-      await agent.startListening(session);
+      await agent.startListening(_debugSession, _conversationHistory);
 
       if (mounted) {
         setState(() {
@@ -178,7 +191,9 @@ class _DebugVoiceScreenState extends ConsumerState<DebugVoiceScreen> {
     _transcriptSub?.cancel();
     _responseSub?.cancel();
     _errorSub?.cancel();
-    _agent?.dispose();
+    // _cachedCactusAgent may be the same object as _agent; only dispose once.
+    if (_agent != _cachedCactusAgent) _agent?.dispose();
+    _cachedCactusAgent?.dispose();
     super.dispose();
   }
 
@@ -287,9 +302,11 @@ class _StatusRow extends StatelessWidget {
           visualDensity: VisualDensity.compact,
         ),
         const SizedBox(width: 8),
-        Chip(
-          label: Text(tierLabel),
-          visualDensity: VisualDensity.compact,
+        Flexible(
+          child: Chip(
+            label: Text(tierLabel, overflow: TextOverflow.ellipsis),
+            visualDensity: VisualDensity.compact,
+          ),
         ),
       ],
     );

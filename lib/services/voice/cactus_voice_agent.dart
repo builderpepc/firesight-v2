@@ -1,13 +1,37 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:speech_to_text/speech_to_text.dart';
+import 'package:record/record.dart';
 import 'package:firesight/cactus.dart';
+import 'package:firesight/models/conversation_history.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
+
+// Top-level functions for compute() — must not capture any mutable state.
+// Pointer addresses cross isolate boundaries as plain ints; native memory is shared.
+
+int _initCactusModel(String modelPath) => cactusInit(modelPath, null, false).address;
+
+// (modelAddress, systemPrompt, optionsJson, pcmBytes)
+// Single cactusComplete call: passes audio + inspection context together so Gemma 4
+// responds directly without a separate transcription step. A second cactusComplete
+// call on the same model after an audio pass crashes (audio KV state not fully reset
+// by cactusReset), so we do everything in one shot.
+// Per Cactus API: user content must be "" when pcmData is supplied.
+String _runCactusCompleteWithAudio((int, String, String, Uint8List) args) {
+  final model = Pointer<Void>.fromAddress(args.$1);
+  final messagesJson = jsonEncode([
+    {'role': 'system', 'content': args.$2},
+    {'role': 'user', 'content': ''},
+  ]);
+  return cactusComplete(model, messagesJson, args.$3, null, null,
+      pcmData: args.$4);
+}
 
 /// Directory name for the Gemma 4 E2B (INT4) variant weights folder.
 const kGemma4E2bSlug = 'gemma-4-e2b-it-int4';
@@ -17,29 +41,49 @@ const kGemma4E4bSlug = 'gemma-4-e4b-it-int8';
 
 const _kModelSubdir = 'cactus';
 const _kMaxResponseTokens = 256;
-const _kListenFor = Duration(seconds: 30);
-const _kPauseFor = Duration(seconds: 2);
 
-/// Tier 2: on-device LLM (Gemma 4 via Cactus FFI) + native STT + native TTS.
+/// Recording config: PCM16 mono 16 kHz — exactly what Cactus transcription expects.
+const _kSampleRate = 16000;
+
+// VAD thresholds (PCM16 RMS values on scale 0–32767).
+const _kVoiceThreshold = 800.0;   // RMS above this → speech detected
+const _kSilenceThreshold = 400.0;  // RMS below this → silence
+const _kMinSpeechMs = 400;         // ignore bursts shorter than this
+const _kSilenceToTriggerMs = 1200; // silence duration required to end utterance
+
+/// Tier 2: on-device LLM (Gemma 4 via Cactus FFI) with Cactus-native audio transcription.
+///
+/// Captures mic audio as raw PCM16 at 16 kHz mono, uses amplitude-based VAD to
+/// detect utterance boundaries, then calls [cactusTranscribe] on the same model
+/// handle used for [cactusComplete]. No external STT engine is involved.
 ///
 /// Used when internet is unavailable on a capable device (≥4 GB RAM).
-/// [_modelPath] is the absolute path to the Cactus weights directory. If the
-/// directory is absent when [startListening] is called, a [StateError] is emitted on
-/// [errorStream] and listening is aborted. Model download is deferred to a
-/// separate flow — this agent only runs inference.
+/// If the model directory is absent when [startListening] is called, a [StateError]
+/// is emitted on [errorStream] and listening is aborted.
 class CactusVoiceAgent implements VoiceAgent {
-  CactusVoiceAgent(this._modelPath, this._stt, this._tts);
+  CactusVoiceAgent(this._modelPath, this._tts);
 
   final String _modelPath;
-  final SpeechToText _stt;
   final FlutterTts _tts;
 
   /// Last path component — identifies the model variant (e.g. [kGemma4E4bSlug]).
   String get modelSlug => _modelPath.split(RegExp(r'[/\\]')).last;
 
   bool _listening = false;
+  bool _ttsActive = false;   // true while TTS is speaking — suppresses VAD
+  bool _processing = false;  // true during inference — prevents concurrent model calls
   bool _modelReady = false;
   CactusModelT? _model;
+  InspectionSession? _currentSession;
+  ConversationHistory? _history;
+
+  // VAD state
+  final _audioChunks = <Uint8List>[];
+  bool _inSpeech = false;
+  int _speechStartMs = 0;
+  int _silenceStartMs = 0;
+  StreamSubscription<Uint8List>? _audioSub;
+  AudioRecorder? _recorder;
 
   final _transcriptController = StreamController<String>.broadcast();
   final _responseController = StreamController<String>.broadcast();
@@ -61,7 +105,7 @@ class CactusVoiceAgent implements VoiceAgent {
   }
 
   @override
-  Future<void> startListening(InspectionSession session) async {
+  Future<void> startListening(InspectionSession session, ConversationHistory history) async {
     if (_listening) return;
     _listening = true;
 
@@ -76,7 +120,8 @@ class CactusVoiceAgent implements VoiceAgent {
       }
 
       try {
-        _model = cactusInit(_modelPath, null, false);
+        final address = await compute(_initCactusModel, _modelPath);
+        _model = Pointer<Void>.fromAddress(address);
         _modelReady = true;
       } catch (e) {
         _listening = false;
@@ -85,84 +130,179 @@ class CactusVoiceAgent implements VoiceAgent {
       }
     }
 
-    final available = await _stt.initialize(
-      onError: (error) {
-        _errorController.add(StateError('STT error: ${error.errorMsg}'));
-      },
-    );
-    if (!available) {
-      _listening = false;
-      _errorController.add(
-        StateError('Speech recognition not available on this device.'),
-      );
-      return;
-    }
+    _currentSession = session;
+    _history = history;
 
     await _tts.setLanguage('en-US');
     await _tts.setSpeechRate(0.5);
 
-    _startListenCycle(session);
+    await _startRecording();
   }
 
-  void _startListenCycle(InspectionSession session) {
-    if (!_listening) return;
+  Future<void> _startRecording() async {
+    final recorder = AudioRecorder();
+    _recorder = recorder;
 
-    _stt.listen(
-      onResult: (result) async {
-        if (!result.finalResult) return;
-        final text = result.recognizedWords.trim();
-        if (text.isEmpty) {
-          _startListenCycle(session);
-          return;
-        }
+    final hasPermission = await recorder.hasPermission();
+    if (!hasPermission) {
+      _listening = false;
+      _errorController.add(StateError('Microphone permission denied.'));
+      return;
+    }
 
-        _transcriptController.add(text);
-        await _processUtterance(text, session);
-        _startListenCycle(session);
-      },
-      listenFor: _kListenFor,
-      pauseFor: _kPauseFor,
-      listenOptions: SpeechListenOptions(
-        listenMode: ListenMode.dictation,
-        cancelOnError: false,
-        partialResults: false,
+    final stream = await recorder.startStream(
+      const RecordConfig(
+        encoder: AudioEncoder.pcm16bits,
+        sampleRate: _kSampleRate,
+        numChannels: 1,
+        echoCancel: true,  // hardware AEC — cancels TTS output from mic input
+        noiseSuppress: true,
       ),
+    );
+
+    _audioChunks.clear();
+    _inSpeech = false;
+    _speechStartMs = 0;
+    _silenceStartMs = 0;
+
+    _audioSub = stream.listen(
+      _onAudioChunk,
+      onError: (Object e) {
+        if (_listening) _errorController.add(e);
+      },
     );
   }
 
+  void _onAudioChunk(Uint8List chunk) {
+    if (!_listening || _ttsActive) return;
+
+    final rms = _computeRms(chunk);
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    if (!_inSpeech) {
+      if (rms >= _kVoiceThreshold) {
+        _inSpeech = true;
+        _speechStartMs = nowMs;
+        _silenceStartMs = 0;
+        _audioChunks.clear();
+        _audioChunks.add(chunk);
+      }
+      // discard silence chunks before any speech
+    } else {
+      _audioChunks.add(chunk);
+
+      if (rms < _kSilenceThreshold) {
+        if (_silenceStartMs == 0) _silenceStartMs = nowMs;
+
+        final silenceDuration = nowMs - _silenceStartMs;
+        final speechDuration = (_silenceStartMs > 0 ? _silenceStartMs : nowMs) - _speechStartMs;
+
+        if (silenceDuration >= _kSilenceToTriggerMs &&
+            speechDuration >= _kMinSpeechMs) {
+          _inSpeech = false;
+          _dispatchUtterance(Uint8List.fromList(
+            _audioChunks.expand((c) => c).toList(),
+          ));
+          _audioChunks.clear();
+          _silenceStartMs = 0;
+        }
+      } else {
+        // reset silence timer on new speech
+        _silenceStartMs = 0;
+      }
+    }
+  }
+
+  double _computeRms(Uint8List pcm16) {
+    if (pcm16.length < 2) return 0;
+    final bd = ByteData.sublistView(pcm16);
+    double sum = 0;
+    final samples = pcm16.length ~/ 2;
+    for (var i = 0; i < samples; i++) {
+      final s = bd.getInt16(i * 2, Endian.little).toDouble();
+      sum += s * s;
+    }
+    return math.sqrt(sum / samples);
+  }
+
+  void _dispatchUtterance(Uint8List pcm) {
+    final session = _currentSession;
+    final history = _history;
+    if (session == null || history == null || !_listening) return;
+    _processUtterance(pcm, session, history);
+  }
+
   Future<void> _processUtterance(
-      String utterance, InspectionSession session) async {
+      Uint8List pcm, InspectionSession session, ConversationHistory history) async {
     final model = _model;
-    if (model == null) return;
+    if (model == null || _processing) return;
+    _processing = true;
 
     try {
-      final messagesJson = buildMessages(session, utterance);
+      // Single cactusComplete call with audio + inspection context + prior history.
+      // A second call after an audio pass crashes even after cactusReset — the audio
+      // KV state is not fully cleared. So we respond directly to the audio in one shot.
+      final systemPrompt = _buildSystemPrompt(session, history);
       final optionsJson = jsonEncode({'max_tokens': _kMaxResponseTokens});
-      final response = cactusComplete(model, messagesJson, optionsJson, null, null);
-      final trimmed = response.trim();
-      if (trimmed.isEmpty) return;
+      final rawResponse = await compute(
+        _runCactusCompleteWithAudio,
+        (model.address, systemPrompt, optionsJson, pcm),
+      );
+      final response = _extractResponse(rawResponse).trim();
+      if (response.isEmpty) return;
 
-      _responseController.add(trimmed);
+      _transcriptController.add(ConversationTurn.kAudioPlaceholder);
+      history.addUser(ConversationTurn.kAudioPlaceholder);
+      history.addAssistant(response);
 
+      _responseController.add(response);
+
+      // TTS output — gate VAD while speaking to prevent self-echo.
+      _ttsActive = true;
+      _inSpeech = false;
+      _audioChunks.clear();
       final speakCompleter = Completer<void>();
       _tts.setCompletionHandler(() {
         if (!speakCompleter.isCompleted) speakCompleter.complete();
       });
-      await _tts.speak(trimmed);
+      await _tts.speak(response);
       await speakCompleter.future.timeout(
         const Duration(seconds: 30),
         onTimeout: () {},
       );
+      _ttsActive = false;
     } catch (e) {
       debugPrint('CactusVoiceAgent: error processing utterance: $e');
       _errorController.add(e);
+    } finally {
+      _processing = false;
+    }
+  }
+
+  /// Extracts the `response` field from a Cactus JSON envelope, or returns
+  /// the raw string if it isn't JSON.
+  static String _extractResponse(String raw) {
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      return decoded['response'] as String? ?? '';
+    } catch (_) {
+      return raw;
     }
   }
 
   @override
   Future<void> stopListening() async {
     _listening = false;
-    await _stt.stop();
+    _ttsActive = false;
+    _processing = false;
+    _currentSession = null;
+    _history = null;
+    _inSpeech = false;
+    _audioChunks.clear();
+    await _audioSub?.cancel();
+    _audioSub = null;
+    await _recorder?.stop();
+    _recorder = null;
     await _tts.stop();
   }
 
@@ -180,18 +320,7 @@ class CactusVoiceAgent implements VoiceAgent {
     await _errorController.close();
   }
 
-  /// Builds the Cactus message JSON from [session] context and [utterance].
-  ///
-  /// Returns a JSON-encoded list: `[{"role":"system","content":"..."},{"role":"user","content":"..."}]`
-  @visibleForTesting
-  static String buildMessages(InspectionSession session, String utterance) {
-    return jsonEncode([
-      {'role': 'system', 'content': _buildSystemPrompt(session)},
-      {'role': 'user', 'content': utterance},
-    ]);
-  }
-
-  static String _buildSystemPrompt(InspectionSession session) {
+  static String _buildSystemPrompt(InspectionSession session, ConversationHistory history) {
     final lines = session.observations.map((o) {
       final photo = o.photoFileRef != null ? ' [photo: ${o.photoFileRef}]' : '';
       return '- ${o.timestamp.toIso8601String()}: ${o.text ?? '(no text)'}$photo';
@@ -203,6 +332,6 @@ If they ask a question, answer it based on the existing inspection context.
 Keep responses brief (1-2 sentences).
 
 Inspection: ${session.name}
-${lines.isEmpty ? 'No observations recorded yet.' : 'Existing observations:\n$lines'}''';
+${lines.isEmpty ? 'No observations recorded yet.' : 'Existing observations:\n$lines'}${history.toSystemPromptBlock()}''';
   }
 }

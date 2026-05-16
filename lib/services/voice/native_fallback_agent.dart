@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:firesight/models/conversation_history.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
 import 'package:speech_to_text/speech_to_text.dart';
@@ -25,9 +26,10 @@ class NativeFallbackAgent implements VoiceAgent {
   Stream<Object> get errorStream => const Stream.empty();
 
   @override
-  Future<void> startListening(InspectionSession session) async {
+  Future<void> startListening(InspectionSession session, ConversationHistory history) async {
     // TODO: Initialize Cactus with Gemma 3 1B.
     // Listen via speech_to_text, forward to CactusLM, play responses via flutter_tts.
+    // Use history.toJsonList() to prefix messages for multi-turn context.
   }
 
   @override

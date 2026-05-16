@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
+import 'package:firesight/models/conversation_history.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/services/audio/audio_output_service.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
@@ -35,9 +36,16 @@ class GeminiVoiceAgent implements VoiceAgent {
   LiveSession? _session;
   StreamSubscription<LiveServerResponse>? _receiveSub;
   StreamSubscription<Uint8List>? _audioSub;
+  ConversationHistory? _history;
+  // True while Gemini is sending audio output — mic is suppressed to prevent
+  // self-echo. SoLoud bypasses Android's audio track so hardware AEC has no
+  // reference signal; software gating is the only reliable option.
+  bool _geminiSpeaking = false;
 
   // Accumulates partial outputTranscription chunks until turnComplete.
   final _responseBuffer = StringBuffer();
+  // Accumulates partial inputTranscription chunks for the current user turn.
+  final _transcriptBuffer = StringBuffer();
 
   final _transcriptController = StreamController<String>.broadcast();
   final _responseController = StreamController<String>.broadcast();
@@ -53,7 +61,8 @@ class GeminiVoiceAgent implements VoiceAgent {
   Stream<Object> get errorStream => _errorController.stream;
 
   @override
-  Future<void> startListening(InspectionSession session) async {
+  Future<void> startListening(InspectionSession session, ConversationHistory history) async {
+    _history = history;
     final hasPermission = await _recorder.hasPermission();
     if (!hasPermission) {
       throw StateError('Microphone permission denied. Please grant it in Settings and try again.');
@@ -63,7 +72,7 @@ class GeminiVoiceAgent implements VoiceAgent {
 
     final liveModel = _firebaseAI.liveGenerativeModel(
       model: _kLiveModel,
-      systemInstruction: Content.system(_buildSystemInstruction(session)),
+      systemInstruction: Content.system(_buildSystemInstruction(session, history)),
       liveGenerationConfig: LiveGenerationConfig(
         responseModalities: [ResponseModalities.audio],
         inputAudioTranscription: AudioTranscriptionConfig(),
@@ -86,6 +95,8 @@ class GeminiVoiceAgent implements VoiceAgent {
         encoder: AudioEncoder.pcm16bits,
         sampleRate: _kInputSampleRate,
         numChannels: 1,
+        echoCancel: true,
+        noiseSuppress: true,
       ),
     );
 
@@ -95,6 +106,7 @@ class GeminiVoiceAgent implements VoiceAgent {
     // catch inside the data handler rather than relying on onError.
     _audioSub = audioStream.listen(
       (Uint8List data) {
+        if (_geminiSpeaking) return; // suppress mic while agent is speaking
         try {
           _session?.sendAudioRealtime(InlineDataPart('audio/pcm', data));
         } catch (e) {
@@ -117,6 +129,9 @@ class GeminiVoiceAgent implements VoiceAgent {
     await _receiveSub?.cancel();
     _receiveSub = null;
     _responseBuffer.clear();
+    _transcriptBuffer.clear();
+    _history = null;
+    _geminiSpeaking = false;
     await _audioOutput.stopPlayback();
     // close() can hang if the socket is already broken; cap at 2 s.
     await _session?.close().timeout(
@@ -134,6 +149,7 @@ class GeminiVoiceAgent implements VoiceAgent {
     final transcriptText = msg.inputTranscription?.text;
     if (transcriptText != null && transcriptText.isNotEmpty) {
       _transcriptController.add(transcriptText);
+      _transcriptBuffer.write(transcriptText);
     }
 
     // Accumulate partial output transcription; emit as one entry per turn.
@@ -147,26 +163,53 @@ class GeminiVoiceAgent implements VoiceAgent {
     if (parts != null) {
       for (final part in parts) {
         if (part is InlineDataPart && part.mimeType.startsWith('audio')) {
+          _geminiSpeaking = true;
           _audioOutput.addChunk(part.bytes);
         }
       }
     }
 
-    // Emit the complete response text when Gemini's turn ends.
+    // Emit the complete response text when Gemini's turn ends, and record
+    // both sides of the turn in the shared conversation history.
     if (msg.turnComplete == true) {
+      final userText = _transcriptBuffer.toString().trim();
       final full = _responseBuffer.toString().trim();
-      if (full.isNotEmpty) _responseController.add(full);
+
+      if (userText.isNotEmpty) _history?.addUser(userText);
+      if (full.isNotEmpty) {
+        _history?.addAssistant(full);
+        _responseController.add(full);
+      }
+
+      _transcriptBuffer.clear();
       _responseBuffer.clear();
+
+      // SoLoud's buffer may still be draining after turnComplete. Keep mic
+      // suppressed until playback actually finishes, then re-enable.
+      _waitForPlaybackDone();
     }
   }
 
-  /// Serialises session context into a system instruction for Gemini.
-  String _buildSystemInstruction(InspectionSession session) =>
-      buildSystemInstruction(session);
+  // Polls AudioOutputService until SoLoud's buffer drains, then clears the
+  // speaking gate. Caps at 30 s to prevent a stuck state if SoLoud reports
+  // isPlaying indefinitely (e.g. if handle tracking drifts).
+  Future<void> _waitForPlaybackDone() async {
+    const pollInterval = Duration(milliseconds: 100);
+    const maxWait = Duration(seconds: 30);
+    final deadline = DateTime.now().add(maxWait);
+    while (_audioOutput.isPlaying && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(pollInterval);
+    }
+    _geminiSpeaking = false;
+  }
+
+  /// Serialises session context and prior conversation history into a system instruction.
+  String _buildSystemInstruction(InspectionSession session, ConversationHistory history) =>
+      buildSystemInstruction(session, history);
 
   /// Pure helper exposed for unit testing.
   @visibleForTesting
-  static String buildSystemInstruction(InspectionSession session) {
+  static String buildSystemInstruction(InspectionSession session, ConversationHistory history) {
     final lines = session.observations.map((o) {
       final photo = o.photoFileRef != null ? ' [photo: ${o.photoFileRef}]' : '';
       return '- ${o.timestamp.toIso8601String()}: ${o.text ?? '(no text)'}$photo';
@@ -177,7 +220,7 @@ Listen to the inspector. If they make an observation, confirm you noted it conci
 If they ask a question, answer it based on the existing inspection context.
 
 Inspection: ${session.name}
-${lines.isEmpty ? 'No observations recorded yet.' : 'Existing observations:\n$lines'}''';
+${lines.isEmpty ? 'No observations recorded yet.' : 'Existing observations:\n$lines'}${history.toSystemPromptBlock()}''';
   }
 
   @override

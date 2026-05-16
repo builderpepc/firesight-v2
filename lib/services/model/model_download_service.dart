@@ -1,7 +1,7 @@
 import 'dart:io';
-import 'package:archive/archive_io.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart' show StateNotifier;
 
@@ -214,33 +214,22 @@ class ModelDownloadNotifier extends StateNotifier<ModelDownloadStatus> {
     }
   }
 
-  /// Extracts all entries in [_zipTmpPath] to [_destDir], then writes a
-  /// sentinel file so a partial extraction is never mistaken for complete.
+  static const _zipChannel = MethodChannel('com.firesight.firesight/zip');
+
+  /// Extracts all entries in [_zipTmpPath] to [_destDir] using the Android
+  /// native ZipInputStream, then writes a sentinel so partial extractions
+  /// are never mistaken for complete. The native implementation streams
+  /// entry-by-entry with a 64 KB buffer — RAM usage is constant regardless
+  /// of archive size.
   Future<void> _extractAll() async {
     final destDir = Directory(_destDir);
     if (destDir.existsSync()) destDir.deleteSync(recursive: true);
     destDir.createSync(recursive: true);
 
-    final inputStream = InputFileStream(_zipTmpPath);
-    try {
-      final archive = ZipDecoder().decodeStream(inputStream);
-      for (final entry in archive.files) {
-        final entryPath = '${destDir.path}/${entry.name}';
-        if (!entry.isFile) {
-          Directory(entryPath).createSync(recursive: true);
-          continue;
-        }
-        File(entryPath).parent.createSync(recursive: true);
-        final outStream = OutputFileStream(entryPath);
-        try {
-          entry.writeContent(outStream);
-        } finally {
-          outStream.close();
-        }
-      }
-    } finally {
-      inputStream.close();
-    }
+    await _zipChannel.invokeMethod<void>('extractZip', {
+      'zipPath': _zipTmpPath,
+      'destPath': _destDir,
+    });
 
     // Write sentinel only after all entries are written.
     File(_sentinelPath).writeAsBytesSync([]);

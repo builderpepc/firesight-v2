@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'package:firesight/models/conversation_history.dart';
 import 'package:firesight/models/inspection_session.dart';
 
 /// Abstract voice agent interface.
 abstract class VoiceAgent {
   /// Begins capturing and processing audio input.
-  Future<void> startListening(InspectionSession session);
+  ///
+  /// [history] is a mutable object shared across agent instances — the agent
+  /// appends each completed turn so context survives tier switches and
+  /// stop/restart cycles.
+  Future<void> startListening(InspectionSession session, ConversationHistory history);
 
   /// Stops audio capture.
   Future<void> stopListening();

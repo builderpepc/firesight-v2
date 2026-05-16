@@ -52,7 +52,7 @@ class VoiceAgentService {
       final basePath =
           modelBasePath ?? (await getApplicationDocumentsDirectory()).path;
       final path = '$basePath/cactus/$slug';
-      return CactusVoiceAgent(path, stt, tts);
+      return CactusVoiceAgent(path, tts);
     }
 
     return NativeFallbackAgent(stt, tts);
