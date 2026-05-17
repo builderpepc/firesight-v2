@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
 import 'package:firesight/core/di.dart';
+import 'package:firesight/models/inspection_form.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/models/observation.dart';
 import 'package:firesight/services/voice/mock_voice_agent.dart';
@@ -24,14 +25,20 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
   InspectionSession? _session;
   bool _isLoading = true;
   bool _pinModeEnabled = false;
+  bool _isAutofilling = false;
   late final TextEditingController _nameController;
   late final TextEditingController _inspectorController;
+  late final Map<String, TextEditingController> _formControllers;
 
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController();
     _inspectorController = TextEditingController();
+    _formControllers = {
+      for (final config in _fieldConfigs)
+        config.fieldId: TextEditingController(),
+    };
     if (widget.sessionId == null) {
       // New session: construct in-memory only; persist on first save so back
       // navigation without saving leaves no orphan row.
@@ -53,6 +60,9 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
   void dispose() {
     _nameController.dispose();
     _inspectorController.dispose();
+    for (final controller in _formControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -88,6 +98,7 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
             ? _session!.name
             : _nameController.text.trim(),
         inspectorId: _normalizedText(_inspectorController.text),
+        form: _formFromControllers(),
       );
       await _persistSession(updatedSession);
       setState(() {});
@@ -139,6 +150,7 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
         ],
       ),
     );
+    noteController.dispose();
 
     if (note != null) {
       final service = await ref.read(sessionServiceProvider.future);
@@ -206,6 +218,9 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
           await _pickFloorplan();
         },
         onMarkAsset: (notes) async {
+          // Voice autofill only needs transcripts to become Observations.
+          // Once real voice agents emit notes this way, the form autofill
+          // service will pick them up without changing the form code.
           if (_session == null) return;
           final observation = Observation(
             id: const Uuid().v4(),
@@ -440,6 +455,11 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
             tooltip: 'Voice Agent',
           ),
           IconButton(
+            icon: const Icon(Icons.assignment),
+            onPressed: _openInspectionForm,
+            tooltip: 'Inspection Form',
+          ),
+          IconButton(
             icon: const Icon(Icons.save),
             onPressed: _saveSession,
             tooltip: 'Save Inspection',
@@ -533,6 +553,28 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
     );
   }
 
+  Future<void> _openInspectionForm() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.85 -
+              MediaQuery.of(context).viewInsets.bottom,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: _buildInspectionFormCard(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _persistSession(InspectionSession session) async {
     final service = await ref.read(sessionServiceProvider.future);
     final sessionToSave = session.copyWith(updatedAt: DateTime.now());
@@ -545,6 +587,7 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
     if (session == null) return;
     _nameController.text = session.name;
     _inspectorController.text = session.inspectorId ?? '';
+    _syncControllersFromForm(session.form);
   }
 
   String? _normalizedText(String value) {
@@ -563,7 +606,7 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
               'Session Details',
               style: Theme.of(context).textTheme.titleMedium,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             TextField(
               controller: _nameController,
               decoration: const InputDecoration(
@@ -620,6 +663,189 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
           ),
         );
       },
+    );
+  }
+
+  Future<void> _autofillForm() async {
+    if (_session == null || _isAutofilling) return;
+    setState(() => _isAutofilling = true);
+    try {
+      _syncSessionFormFromControllers();
+      final service = ref.read(formAutofillServiceProvider);
+      final result = await service.autofill(
+        currentForm: _session!.form,
+        observations: _session!.observations,
+      );
+
+      // Merge suggestions by fieldId so repeated autofill runs don't accumulate
+      // duplicates — the newest suggestion for each field wins.
+      final mergedSuggestions = {
+        for (final s in [
+          ..._session!.formSuggestions,
+          ...result.suggestions,
+        ])
+          s.fieldId: s,
+      }.values.toList();
+
+      final updatedSession = _session!.copyWith(
+        form: result.form,
+        formSuggestions: mergedSuggestions,
+      );
+
+      await _persistSession(updatedSession);
+      if (!mounted) return;
+      setState(() {
+        _syncControllersFromForm(result.form);
+      });
+    } finally {
+      if (mounted) setState(() => _isAutofilling = false);
+    }
+  }
+
+  Future<void> _exportPdf() async {
+    if (_session == null) return;
+    _syncSessionFormFromControllers();
+    try {
+      await ref.read(pdfExportServiceProvider).generateAndShare(_session!);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF export failed: $e')),
+        );
+      }
+    }
+  }
+
+  void _syncSessionFormFromControllers() {
+    if (_session == null) return;
+    _session = _session!.copyWith(form: _formFromControllers());
+  }
+
+  InspectionForm _formFromControllers() {
+    return InspectionForm(
+      buildingName: _textFor(InspectionFormFieldIds.buildingName),
+      address: _textFor(InspectionFormFieldIds.address),
+      occupancyType: _textFor(InspectionFormFieldIds.occupancyType),
+      constructionType: _textFor(InspectionFormFieldIds.constructionType),
+      alarmPanelLocation: _textFor(InspectionFormFieldIds.alarmPanelLocation),
+      sprinklerRiserLocation: _textFor(
+        InspectionFormFieldIds.sprinklerRiserLocation,
+      ),
+      fireProtectionSystems: _textFor(
+        InspectionFormFieldIds.fireProtectionSystems,
+      ),
+      utilityShutoffs: _textFor(InspectionFormFieldIds.utilityShutoffs),
+      hazards: _textFor(InspectionFormFieldIds.hazards),
+      accessNotes: _textFor(InspectionFormFieldIds.accessNotes),
+      notes: _textFor(InspectionFormFieldIds.notes),
+    );
+  }
+
+  String? _textFor(String fieldId) {
+    final text = _formControllers[fieldId]?.text.trim();
+    if (text == null || text.isEmpty) return null;
+    return text;
+  }
+
+  void _syncControllersFromForm(InspectionForm form) {
+    for (final config in _fieldConfigs) {
+      _formControllers[config.fieldId]?.text =
+          form.valueFor(config.fieldId) ?? '';
+    }
+  }
+
+  String _labelFor(String fieldId) {
+    return _fieldConfigs
+        .firstWhere(
+          (config) => config.fieldId == fieldId,
+          orElse: () => _FormFieldConfig(fieldId, fieldId),
+        )
+        .label;
+  }
+
+  Widget _buildInspectionFormCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Inspection Form',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed:
+                      (_session!.observations.isEmpty || _isAutofilling) ? null : _autofillForm,
+                  icon: const Icon(Icons.auto_fix_high),
+                  label: const Text('Autofill'),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _exportPdf,
+                  icon: const Icon(Icons.picture_as_pdf),
+                  label: const Text('PDF'),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: ListView(
+                children: [
+                  ..._fieldConfigs.map(
+                    (config) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: TextField(
+                        controller: _formControllers[config.fieldId],
+                        maxLines: config.maxLines,
+                        decoration: InputDecoration(
+                          border: const OutlineInputBorder(),
+                          labelText: config.label,
+                        ),
+                        onChanged: (_) => _syncSessionFormFromControllers(),
+                      ),
+                    ),
+                  ),
+                  if (_session!.formSuggestions.isNotEmpty) ...[
+                    const Divider(height: 24),
+                    Text(
+                      'Autofill suggestions',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    ..._session!.formSuggestions.map(
+                      (suggestion) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          '${_labelFor(suggestion.fieldId)}: '
+                          '${(suggestion.confidence * 100).round()}% confidence',
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -702,6 +928,57 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
   }
 }
 
+class _FormFieldConfig {
+  const _FormFieldConfig(this.fieldId, this.label, {this.maxLines = 1});
+
+  final String fieldId;
+  final String label;
+  final int maxLines;
+}
+
+const _fieldConfigs = [
+  _FormFieldConfig(InspectionFormFieldIds.buildingName, 'Building Name'),
+  _FormFieldConfig(InspectionFormFieldIds.address, 'Address'),
+  _FormFieldConfig(InspectionFormFieldIds.occupancyType, 'Occupancy Type'),
+  _FormFieldConfig(
+    InspectionFormFieldIds.constructionType,
+    'Construction Type',
+  ),
+  _FormFieldConfig(
+    InspectionFormFieldIds.alarmPanelLocation,
+    'Alarm Panel Location',
+  ),
+  _FormFieldConfig(
+    InspectionFormFieldIds.sprinklerRiserLocation,
+    'Sprinkler Riser Location',
+  ),
+  _FormFieldConfig(
+    InspectionFormFieldIds.fireProtectionSystems,
+    'Fire Protection Systems',
+    maxLines: 2,
+  ),
+  _FormFieldConfig(
+    InspectionFormFieldIds.utilityShutoffs,
+    'Utility Shutoffs',
+    maxLines: 2,
+  ),
+  _FormFieldConfig(
+    InspectionFormFieldIds.hazards,
+    'Known Hazards',
+    maxLines: 3,
+  ),
+  _FormFieldConfig(
+    InspectionFormFieldIds.accessNotes,
+    'Access Notes',
+    maxLines: 3,
+  ),
+  _FormFieldConfig(
+    InspectionFormFieldIds.notes,
+    'Additional Notes',
+    maxLines: 3,
+  ),
+];
+
 class _VoiceMessage {
   _VoiceMessage(this.text, {required this.fromUser});
   final String text;
@@ -746,9 +1023,8 @@ class _VoiceSessionSheetState extends State<_VoiceSessionSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final mock = widget.agent is MockVoiceAgent
-        ? widget.agent as MockVoiceAgent
-        : null;
+    final mock =
+        widget.agent is MockVoiceAgent ? widget.agent as MockVoiceAgent : null;
 
     return Padding(
       padding:
@@ -806,8 +1082,12 @@ class _VoiceSessionSheetState extends State<_VoiceSessionSheet> {
                                 horizontal: 12, vertical: 8),
                             decoration: BoxDecoration(
                               color: m.fromUser
-                                  ? Theme.of(context).colorScheme.primaryContainer
-                                  : Theme.of(context).colorScheme.surfaceContainerHighest,
+                                  ? Theme.of(context)
+                                      .colorScheme
+                                      .primaryContainer
+                                  : Theme.of(context)
+                                      .colorScheme
+                                      .surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(m.text),
