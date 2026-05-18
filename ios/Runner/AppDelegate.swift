@@ -5,6 +5,7 @@ import ZIPFoundation
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private let kZipChannel = "com.firesight.firesight/zip"
+  private var registeredRegistries = Set<ObjectIdentifier>()
 
   override func application(
     _ application: UIApplication,
@@ -14,12 +15,22 @@ import ZIPFoundation
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
-    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    self.registerPlugins(with: engineBridge.pluginRegistry)
+  }
 
-    guard let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "FiresightZip") else { return }
-    let messenger = registrar.messenger()
+  private func registerPlugins(with registry: FlutterPluginRegistry) {
+    let registryID = ObjectIdentifier(registry as AnyObject)
+    guard !registeredRegistries.contains(registryID) else { return }
+    registeredRegistries.insert(registryID)
+
+    GeneratedPluginRegistrant.register(with: registry)
+    if let registrar = registry.registrar(forPlugin: "FiresightZip") {
+      self.setupZipChannel(messenger: registrar.messenger())
+    }
+  }
+
+  private func setupZipChannel(messenger: FlutterBinaryMessenger) {
     let zipChannel = FlutterMethodChannel(name: kZipChannel, binaryMessenger: messenger)
-
     zipChannel.setMethodCallHandler { [weak self] call, result in
       guard let self = self else { return }
       switch call.method {
