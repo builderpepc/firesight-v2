@@ -2,11 +2,13 @@ import 'package:json_annotation/json_annotation.dart';
 import 'package:equatable/equatable.dart';
 import 'observation.dart';
 import 'building_document.dart';
+import 'form_field_suggestion.dart';
+import 'inspection_form.dart';
 
 part 'inspection_session.g.dart';
 
 /// Represents a complete inspection session with observations.
-@JsonSerializable()
+@JsonSerializable(explicitToJson: true)
 class InspectionSession extends Equatable {
   const InspectionSession({
     required this.id,
@@ -21,6 +23,8 @@ class InspectionSession extends Equatable {
     this.status,
     this.inspectorId,
     this.riskLevel,
+    this.form = const InspectionForm(),
+    this.formSuggestions = const [],
   });
 
   final String id;
@@ -51,6 +55,11 @@ class InspectionSession extends Equatable {
   @JsonKey(name: 'risk_level')
   final String? riskLevel;
 
+  final InspectionForm form;
+
+  @JsonKey(name: 'form_suggestions')
+  final List<FormFieldSuggestion> formSuggestions;
+
   InspectionSession copyWith({
     String? id,
     String? name,
@@ -64,6 +73,8 @@ class InspectionSession extends Equatable {
     String? status,
     String? inspectorId,
     String? riskLevel,
+    InspectionForm? form,
+    List<FormFieldSuggestion>? formSuggestions,
   }) {
     return InspectionSession(
       id: id ?? this.id,
@@ -78,6 +89,8 @@ class InspectionSession extends Equatable {
       status: status ?? this.status,
       inspectorId: inspectorId ?? this.inspectorId,
       riskLevel: riskLevel ?? this.riskLevel,
+      form: form ?? this.form,
+      formSuggestions: formSuggestions ?? this.formSuggestions,
     );
   }
 
@@ -100,5 +113,7 @@ class InspectionSession extends Equatable {
         status,
         inspectorId,
         riskLevel,
+        form,
+        formSuggestions,
       ];
 }

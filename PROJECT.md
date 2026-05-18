@@ -23,6 +23,7 @@ FireSight has full cross-platform mobile support via Flutter. When cross-platfor
 | Notes are generated and photos are captured as the user speaks | Capture photos when the user starts speaking to be passed to the multimodal AI agent, which also has the context of the existing notes and tool calls to update the notes. Notes reference specific photos inline; the agent should actually receive the photos in API calls so it can understand which observations refer to which photos. |
 | Pairing with Meta glasses | Use the Meta Wearables Device Access Toolkit (often referred to in this project as the Meta glasses SDK). Meta glasses integration is not a requirement to use the app; use phone camera/audio by default. The Meta glasses act like a Bluetooth speaker/microphone, so generally speaking no special SDK usage is needed to stream audio to/from the glasses, but the SDK is needed for camera access. |
 | Inspection session management: users can view past inspections and load them to resume. Sessions are automatically saved as updates are made. Sessions can be exported to and imported from ZIP files. | Sessions are stored on disk as directories containing the notes (as a Markdown file) and photos, along with any relevant metadata in a JSON file. Flutter (preferred) or OS-native APIs are used for the ZIP compression/extraction and other file management utilities. |
+| Structured form autofill | FireSight maintains its own `InspectionForm` schema inside each `InspectionSession`. The MVP maps saved observations into known fire-inspection fields using a local rule-based `FormAutofillEngine`, stores `FormFieldSuggestion` records with confidence/evidence/source metadata, lets users review/edit the fields, and generates a new PDF report from the structured form. Future Cactus/Gemini engines should implement the same `FormAutofillEngine` contract so the UI and PDF export path do not need to change. |
 | Audio summary of current inspection | Use on-device TTS to play a quick summary of what's been covered so far, e.g. a count of observations per category and/or regions of the building which have and haven't been covered. |
 | Ask questions out loud and hear voice agent responses | When the user speaks, the agent determines if the user said a question rather than an observation, and responds if so. For example, the user may ask about what parts of the building were covered, where to get started, or any other relevant questions. The agent should leverage available context and tools to answer. 
 | PDF report export - the user can tap a button to generate a PDF of the report containing the observations and corresponding photos. The PDF opens in the user's default PDF app. | Uses on-device PDF manipulation capabilities if available. Internet should not be required. |
@@ -34,6 +35,27 @@ The voice input/output has three layers of fallback:
 2. No internet, capable device: Use Gemma 4 edge models (like E4B or E2B depending on hardware specs) via Cactus. This should be reasonably performant on recent cell phone models.
 3. No internet, lower-power device: Use a suitable variant of Gemma 3 1B paired with Flutter or OS-native STT/TTS and speech detection APIs. If multimodal capabilities are unavailable based on the model, add captured photos to an internal queue to be processed by Gemini once internet is restored.
 Gemini's voice API is preferred for voice input/output with on-device STT/TTS and inference as fallback when internet is not available.
+
+## Form Autofill Architecture
+
+The form autofill path is intentionally source-agnostic: observations may come from manual notes,
+floorplan photo notes, mock voice commands, or future real voice transcripts. As long as the text is
+persisted as an `Observation`, the form autofill service can use it.
+
+The current pipeline is:
+
+```text
+InspectionSession.observations
+        -> FormAutofillService
+        -> FormAutofillEngine
+        -> InspectionForm + FormFieldSuggestion[]
+        -> PdfExportService
+```
+
+The MVP engine is `RuleBasedFormAutofillEngine`. Its confidence values are fixed heuristics based
+on exact phrase or keyword matches. Future Cactus/Gemini engines should return the same
+`FormAutofillResult` shape, ideally using structured output with confidence and evidence for each
+field suggestion.
 
 ## External Docs
 - Meta Wearables SDK: [iOS](https://github.com/facebook/meta-wearables-dat-ios/discussions) and [Android](https://github.com/facebook/meta-wearables-dat-android) GitHub repos

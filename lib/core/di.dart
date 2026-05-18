@@ -12,6 +12,9 @@ import '../services/camera/camera_provider.dart';
 import '../services/camera/phone_camera_provider.dart';
 import '../services/connectivity/connectivity_service.dart';
 import '../services/device/device_capability_service.dart';
+import '../services/forms/form_autofill_engine.dart';
+import '../services/forms/form_autofill_service.dart';
+import '../services/forms/rule_based_form_autofill_engine.dart';
 import '../services/pdf/pdf_export_service.dart';
 import '../services/session/session_service.dart';
 import '../services/session/local_session_storage.dart';
@@ -89,6 +92,18 @@ final audioOutputServiceProvider = Provider<AudioOutputService>((ref) {
 /// Offline PDF generation and sharing.
 final pdfExportServiceProvider = Provider<PdfExportService>((ref) {
   return PdfExportService();
+});
+
+/// Pluggable form autofill engine. MVP uses local rules; Cactus/Gemini can
+/// implement the same interface later.
+final formAutofillEngineProvider = Provider<FormAutofillEngine>((ref) {
+  // TODO: Select Cactus or Gemini here once AI autofill is implemented.
+  // The UI should continue depending only on FormAutofillService.
+  return const RuleBasedFormAutofillEngine();
+});
+
+final formAutofillServiceProvider = Provider<FormAutofillService>((ref) {
+  return FormAutofillService(ref.watch(formAutofillEngineProvider));
 });
 
 /// Active camera provider. Defaults to phone camera; Meta glasses provider
