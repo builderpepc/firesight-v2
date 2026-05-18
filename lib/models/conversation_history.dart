@@ -1,4 +1,9 @@
+import 'package:json_annotation/json_annotation.dart';
+
+part 'conversation_history.g.dart';
+
 /// A single turn in a voice conversation.
+@JsonSerializable()
 class ConversationTurn {
   const ConversationTurn({required this.role, required this.content});
 
@@ -11,15 +16,23 @@ class ConversationTurn {
 
   static const kAudioPlaceholder = '[audio]';
 
-  Map<String, dynamic> toJson() => {'role': role, 'content': content};
+  factory ConversationTurn.fromJson(Map<String, dynamic> json) =>
+      _$ConversationTurnFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ConversationTurnToJson(this);
 }
 
 /// Mutable conversation history shared across agent instances.
 ///
 /// Passed into [VoiceAgent.startListening] so history survives agent
 /// recreation on tier switches or stop/restart cycles.
+@JsonSerializable()
 class ConversationHistory {
-  final List<ConversationTurn> turns = [];
+  ConversationHistory({List<ConversationTurn>? turns})
+      : turns = turns ?? [];
+
+  @JsonKey(name: 'turns')
+  final List<ConversationTurn> turns;
 
   bool get isEmpty => turns.isEmpty;
 
@@ -28,6 +41,11 @@ class ConversationHistory {
 
   void addAssistant(String content) =>
       turns.add(ConversationTurn(role: 'assistant', content: content));
+
+  factory ConversationHistory.fromJson(Map<String, dynamic> json) =>
+      _$ConversationHistoryFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ConversationHistoryToJson(this);
 
   /// Returns all turns as a JSON-compatible list for inclusion in a
   /// messages array (e.g. for Cactus or Gemma).

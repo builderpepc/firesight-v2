@@ -31,3 +31,13 @@ class Timeouts {
   static const int defaultTimeout = 30000;
   static const int voiceInit = 15000;
 }
+
+const List<String> kObservationCategories = [
+  'General',
+  'Fire Safety',
+  'Electrical',
+  'Structural',
+  'Egress',
+  'Hazmat',
+  'Access',
+];

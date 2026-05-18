@@ -91,6 +91,7 @@ class CactusVoiceAgent implements VoiceAgent {
   final _processingController = StreamController<bool>.broadcast();
   final _errorController = StreamController<Object>.broadcast();
   final _actionController = StreamController<VoiceAction>.broadcast();
+  final _audioLevelController = StreamController<double>.broadcast();
 
   @override
   Stream<String> get transcriptStream => _transcriptController.stream;
@@ -106,6 +107,9 @@ class CactusVoiceAgent implements VoiceAgent {
 
   @override
   Stream<VoiceAction> get actionStream => _actionController.stream;
+
+  @override
+  Stream<double> get audioLevelStream => _audioLevelController.stream;
 
   /// Returns the default on-device path for the given [modelSlug] (filename).
   static Future<String> defaultModelPath(String modelSlug) async {
@@ -183,9 +187,17 @@ class CactusVoiceAgent implements VoiceAgent {
   }
 
   void _onAudioChunk(Uint8List chunk) {
-    if (!_listening || _ttsActive) return;
+    if (!_listening || _ttsActive) {
+      _audioLevelController.add(0.0);
+      return;
+    }
 
     final rms = _computeRms(chunk);
+    // Normalize RMS (0-32767) to 0.0-1.0. 
+    // Typical speech RMS is around 1000-5000.
+    final normalized = (rms / 5000.0).clamp(0.0, 1.0);
+    _audioLevelController.add(normalized);
+
     final nowMs = DateTime.now().millisecondsSinceEpoch;
 
     if (!_inSpeech) {
@@ -252,7 +264,7 @@ class CactusVoiceAgent implements VoiceAgent {
       // Single cactusComplete call with audio + inspection context + prior history.
       // A second call after an audio pass crashes even after cactusReset — the audio
       // KV state is not fully cleared. So we respond directly to the audio in one shot.
-      final systemPrompt = _buildSystemPrompt(session, history);
+      final systemPrompt = buildSystemPrompt(session, history);
       final optionsJson = jsonEncode({'max_tokens': _kMaxResponseTokens});
       final rawResponse = await compute(
         _runCactusCompleteWithAudio,
@@ -301,6 +313,8 @@ class CactusVoiceAgent implements VoiceAgent {
       final actionJson = json['action'] as Map<String, dynamic>?;
       if (actionJson == null) return (text, null);
       final action = switch (actionJson['type'] as String?) {
+        'start_new_inspection' => const StartNewInspection(),
+        'save_session' => const SaveSession(),
         'record_observation' => RecordObservation(
             (actionJson['text'] as String? ?? '').trim()),
         'take_photo' => TakePhoto(
@@ -323,6 +337,7 @@ class CactusVoiceAgent implements VoiceAgent {
     _history = null;
     _inSpeech = false;
     _audioChunks.clear();
+    _audioLevelController.add(0.0);
     await _audioSub?.cancel();
     _audioSub = null;
     await _recorder?.stop();
@@ -344,9 +359,11 @@ class CactusVoiceAgent implements VoiceAgent {
     await _processingController.close();
     await _errorController.close();
     await _actionController.close();
+    await _audioLevelController.close();
   }
 
-  static String _buildSystemPrompt(InspectionSession session, ConversationHistory history) {
+  @visibleForTesting
+  static String buildSystemPrompt(InspectionSession session, ConversationHistory history) {
     final lines = session.observations.map((o) {
       final photo = o.photoFileRef != null ? ' [photo: ${o.photoFileRef}]' : '';
       return '- ${o.timestamp.toIso8601String()}: ${o.text ?? '(no text)'}$photo';
@@ -359,10 +376,14 @@ Always respond in this exact JSON format:
 {"text": "<your spoken reply>", "action": <action_or_null>}
 
 Action types:
-  Record observation: {"type": "record_observation", "text": "<observation text>"}
-  Request photo:      {"type": "take_photo", "description": "<what to photograph>"}
-  Upload floorplan:   {"type": "upload_floorplan"}
+  Start new inspection: {"type": "start_new_inspection"}
+  Save session:        {"type": "save_session"}
+  Record observation:  {"type": "record_observation", "text": "<observation text>"}
+  Request photo:       {"type": "take_photo", "description": "<what to photograph>"}
+  Upload floorplan:    {"type": "upload_floorplan"}
 
+When the user wants to start a new inspection, respond with start_new_inspection.
+When the user wants to save or finish, respond with save_session.
 When the inspector states a factual observation, respond with record_observation immediately.
 When they ask to photograph something, respond with take_photo.
 When they ask to upload or replace the floorplan, respond with upload_floorplan.

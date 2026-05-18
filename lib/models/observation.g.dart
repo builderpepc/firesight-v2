@@ -14,6 +14,7 @@ Observation _$ObservationFromJson(Map<String, dynamic> json) => Observation(
       response: json['response'] as String?,
       floorplanX: (json['floorplan_x'] as num?)?.toDouble(),
       floorplanY: (json['floorplan_y'] as num?)?.toDouble(),
+      category: json['category'] as String?,
     );
 
 Map<String, dynamic> _$ObservationToJson(Observation instance) =>
@@ -25,4 +26,5 @@ Map<String, dynamic> _$ObservationToJson(Observation instance) =>
       'response': instance.response,
       'floorplan_x': instance.floorplanX,
       'floorplan_y': instance.floorplanY,
+      'category': instance.category,
     };

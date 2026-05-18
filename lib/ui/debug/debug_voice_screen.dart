@@ -371,18 +371,51 @@ class _ControlButton extends StatelessWidget {
   }
 }
 
-class _LogPanel extends StatelessWidget {
+class _LogPanel extends StatefulWidget {
   const _LogPanel({required this.label, required this.entries});
 
   final String label;
   final List<_LogEntry> entries;
 
   @override
+  State<_LogPanel> createState() => _LogPanelState();
+}
+
+class _LogPanelState extends State<_LogPanel> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void didUpdateWidget(covariant _LogPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.entries.length > oldWidget.entries.length) {
+      _scrollToBottom();
+    }
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: Theme.of(context).textTheme.labelLarge),
+        Text(widget.label, style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 4),
         Expanded(
           child: Container(
@@ -390,16 +423,17 @@ class _LogPanel extends StatelessWidget {
               border: Border.all(color: Colors.grey.shade300),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: entries.isEmpty
+            child: widget.entries.isEmpty
                 ? const Center(
                     child: Text('—', style: TextStyle(color: Colors.grey)),
                   )
                 : ListView.separated(
+                    controller: _scrollController,
                     padding: const EdgeInsets.all(8),
-                    itemCount: entries.length,
+                    itemCount: widget.entries.length,
                     separatorBuilder: (_, __) => const Divider(height: 8),
                     itemBuilder: (_, i) {
-                      final e = entries[i];
+                      final e = widget.entries[i];
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [

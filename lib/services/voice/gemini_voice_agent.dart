@@ -55,6 +55,8 @@ class GeminiVoiceAgent implements VoiceAgent {
   final _processingController = StreamController<bool>.broadcast();
   final _errorController = StreamController<Object>.broadcast();
   final _actionController = StreamController<VoiceAction>.broadcast();
+  final _audioLevelController = StreamController<double>.broadcast();
+  StreamSubscription<Amplitude>? _amplitudeSub;
 
   @override
   Stream<String> get transcriptStream => _transcriptController.stream;
@@ -70,6 +72,9 @@ class GeminiVoiceAgent implements VoiceAgent {
 
   @override
   Stream<VoiceAction> get actionStream => _actionController.stream;
+
+  @override
+  Stream<double> get audioLevelStream => _audioLevelController.stream;
 
   @override
   Future<void> startListening(InspectionSession session, ConversationHistory history) async {
@@ -91,6 +96,16 @@ class GeminiVoiceAgent implements VoiceAgent {
       ),
       tools: [
         Tool.functionDeclarations([
+          FunctionDeclaration(
+            'start_new_inspection',
+            'Starts a brand new inspection session. Use this when the user wants to begin a new survey.',
+            parameters: {},
+          ),
+          FunctionDeclaration(
+            'save_session',
+            'Saves the current inspection session. Use this when the user says "save", "finish", or "done".',
+            parameters: {},
+          ),
           FunctionDeclaration(
             'record_observation',
             'Records a text observation stated by the inspector.',
@@ -138,6 +153,14 @@ class GeminiVoiceAgent implements VoiceAgent {
       ),
     );
 
+    // Monitor amplitude for visualization.
+    _amplitudeSub = _recorder.onAmplitudeChanged(const Duration(milliseconds: 100)).listen((amp) {
+      // Convert dBFS to 0.0 - 1.0. 
+      // -160 is silence, 0 is max.
+      final normalized = (amp.current + 160) / 160;
+      _audioLevelController.add(normalized.clamp(0.0, 1.0));
+    });
+
     // Forward each PCM chunk to the live session via sendAudioRealtime.
     // Stored so it can be cancelled in stopListening.
     // sendAudioRealtime throws synchronously on WebSocket close, so we
@@ -161,6 +184,8 @@ class GeminiVoiceAgent implements VoiceAgent {
 
   @override
   Future<void> stopListening() async {
+    await _amplitudeSub?.cancel();
+    _amplitudeSub = null;
     await _audioSub?.cancel();
     _audioSub = null;
     await _recorder.stop();
@@ -171,6 +196,7 @@ class GeminiVoiceAgent implements VoiceAgent {
     _history = null;
     _geminiSpeaking = false;
     _processingEmitted = false;
+    _audioLevelController.add(0.0);
     await _audioOutput.stopPlayback();
     // close() can hang if the socket is already broken; cap at 2 s.
     await _session?.close().timeout(
@@ -242,6 +268,10 @@ class GeminiVoiceAgent implements VoiceAgent {
 
   void _handleFunctionCall(FunctionCall call) {
     switch (call.name) {
+      case 'start_new_inspection':
+        _actionController.add(const StartNewInspection());
+      case 'save_session':
+        _actionController.add(const SaveSession());
       case 'record_observation':
         final text = call.args['text'] as String?;
         if (text != null && text.isNotEmpty) {
@@ -279,6 +309,8 @@ class GeminiVoiceAgent implements VoiceAgent {
 
     return '''You are a fire inspection AI assistant helping a firefighter conduct a pre-incident survey.
 
+When the user wants to start a new inspection (e.g. "start a new one", "new inspection"), call start_new_inspection.
+When the user wants to save or finish the current session (e.g. "save this", "finish inspection", "done"), call save_session.
 When the inspector states a factual observation (e.g. "blocked exit", "sprinkler head missing", "door is damaged"), call record_observation immediately with their exact words — do not ask for confirmation first.
 When the inspector asks to photograph or document something visually, call take_photo.
 When the inspector asks to upload or replace the floorplan, call upload_floorplan.
@@ -297,5 +329,6 @@ ${lines.isEmpty ? 'No observations recorded yet.' : 'Existing observations:\n$li
     await _processingController.close();
     await _errorController.close();
     await _actionController.close();
+    await _audioLevelController.close();
   }
 }

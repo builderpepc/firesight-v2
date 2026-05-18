@@ -39,6 +39,7 @@ dependencies:
   # File & session management
   path_provider: ^2.1.0
   archive: ^4.0.0
+  file_picker: ^8.1.7
 
   # PDF export (offline, open-source)
   pdf: ^3.11.0

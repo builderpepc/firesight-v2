@@ -1,10 +1,14 @@
 import 'package:firesight/core/di.dart';
+import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/models/session_metadata.dart';
 import 'package:firesight/services/model/model_download_service.dart';
 import 'package:firesight/services/session/session_service.dart';
+import 'package:firesight/services/voice/voice_agent.dart';
+import 'package:firesight/ui/widgets/voice_session_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:uuid/uuid.dart';
 
 /// Home screen showing recent inspection sessions.
 class HomeScreen extends ConsumerStatefulWidget {
@@ -137,13 +141,83 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          await context.pushNamed('session-new');
-          ref.invalidate(sessionsProvider);
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            onPressed: _openVoiceSession,
+            icon: const Icon(Icons.mic),
+            label: const Text('Voice Agent'),
+            heroTag: 'voice_agent_fab',
+          ),
+          const SizedBox(height: 16),
+          FloatingActionButton.extended(
+            onPressed: () async {
+              await context.pushNamed('session-new');
+              ref.invalidate(sessionsProvider);
+            },
+            icon: const Icon(Icons.add),
+            label: const Text('New Inspection'),
+            heroTag: 'new_inspection_fab',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openVoiceSession() async {
+    final voiceService = ref.read(voiceAgentServiceProvider);
+    final VoiceAgent agent;
+    try {
+      agent = await voiceService.resolveAgent();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Voice agent unavailable: $e')),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+
+    // Use a placeholder session for the home screen
+    final now = DateTime.now();
+    final placeholderSession = InspectionSession(
+      id: 'home-voice-placeholder',
+      name: 'Home Screen Session',
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => VoiceSessionSheet(
+        agent: agent,
+        session: placeholderSession,
+        onSessionUpdated: (updated) async {
+          // No-op for placeholder
         },
-        icon: const Icon(Icons.add),
-        label: const Text('New Inspection'),
+        onFloorplanRequested: () async {
+          // Notify that floorplan requires an active session
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Floorplan upload requires an active inspection. Try saying "start new inspection".',
+                ),
+              ),
+            );
+          }
+        },
+        onStartNewInspection: () {
+          Navigator.pop(context);
+          context.pushNamed('session-new').then((_) {
+            if (mounted) ref.invalidate(sessionsProvider);
+          });
+        },
       ),
     );
   }

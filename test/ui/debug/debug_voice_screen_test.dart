@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:firesight/core/di.dart';
 import 'package:firesight/core/theme.dart';
+import 'package:firesight/models/conversation_history.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/services/connectivity/connectivity_service.dart';
 import 'package:firesight/services/tts/tts_service.dart';
@@ -27,6 +28,7 @@ void main() {
         updatedAt: DateTime(2026),
       ),
     );
+    registerFallbackValue(ConversationHistory());
   });
 
   late MockConnectivityService connectivity;
@@ -111,14 +113,16 @@ void main() {
   testWidgets('appends transcript entries from agent stream', (tester) async {
     final transcriptCtrl = StreamController<String>.broadcast();
     final responseCtrl = StreamController<String>.broadcast();
+    final audioLevelCtrl = StreamController<double>.broadcast();
     final agent = MockVoiceAgent();
 
     when(() => connectivity.isOnline).thenAnswer((_) => Stream.value(true));
     when(() => connectivity.checkOnline()).thenAnswer((_) async => true);
     when(() => agentService.resolveAgent()).thenAnswer((_) async => agent);
-    when(() => agent.startListening(any())).thenAnswer((_) async {});
+    when(() => agent.startListening(any(), any())).thenAnswer((_) async {});
     when(() => agent.transcriptStream).thenAnswer((_) => transcriptCtrl.stream);
     when(() => agent.responseStream).thenAnswer((_) => responseCtrl.stream);
+    when(() => agent.audioLevelStream).thenAnswer((_) => audioLevelCtrl.stream);
     when(() => agent.stopListening()).thenAnswer((_) async {});
     when(() => agent.dispose()).thenAnswer((_) async {});
 

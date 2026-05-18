@@ -2,43 +2,28 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:speech_to_text/speech_to_text.dart';
+import 'package:firesight/models/conversation_history.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/models/observation.dart';
 import 'package:firesight/services/voice/cactus_voice_agent.dart';
 
-class _MockStt extends Mock implements SpeechToText {}
 class _MockTts extends Mock implements FlutterTts {}
 
 // Integration tests (actual model load / microphone) require a physical device.
 // These unit tests cover the pure message-builder and constant logic.
 
 void main() {
-  group('CactusVoiceAgent.buildMessages', () {
-    test('system message references session name', () {
+  final history = ConversationHistory();
+  group('CactusVoiceAgent.buildSystemPrompt', () {
+    test('references session name', () {
       final session = _session(name: 'Station 7 — Warehouse B');
-      final decoded = _decode(CactusVoiceAgent.buildMessages(session, 'Any text'));
-      expect(decoded[0]['role'], 'system');
-      expect(decoded[0]['content'], contains('Station 7 — Warehouse B'));
-    });
-
-    test('user message contains the utterance verbatim', () {
-      final session = _session();
-      final decoded = _decode(CactusVoiceAgent.buildMessages(session, 'Exit door blocked'));
-      expect(decoded[1]['role'], 'user');
-      expect(decoded[1]['content'], 'Exit door blocked');
-    });
-
-    test('produces exactly two messages: system then user', () {
-      final decoded = _decode(CactusVoiceAgent.buildMessages(_session(), 'hello'));
-      expect(decoded.length, 2);
-      expect(decoded[0]['role'], 'system');
-      expect(decoded[1]['role'], 'user');
+      final result = CactusVoiceAgent.buildSystemPrompt(session, history);
+      expect(result, contains('Station 7 — Warehouse B'));
     });
 
     test('reports no observations when list is empty', () {
-      final decoded = _decode(CactusVoiceAgent.buildMessages(_session(), 'hello'));
-      expect(decoded[0]['content'], contains('No observations recorded yet.'));
+      final result = CactusVoiceAgent.buildSystemPrompt(_session(), history);
+      expect(result, contains('No observations recorded yet.'));
     });
 
     test('includes existing observations in system prompt', () {
@@ -47,11 +32,11 @@ void main() {
         timestamp: DateTime(2026, 5, 13, 9, 0),
         text: 'Sprinkler head blocked by shelving',
       );
-      final decoded = _decode(CactusVoiceAgent.buildMessages(
+      final result = CactusVoiceAgent.buildSystemPrompt(
         _session(observations: [obs]),
-        'hello',
-      ));
-      expect(decoded[0]['content'], contains('Sprinkler head blocked by shelving'));
+        history,
+      );
+      expect(result, contains('Sprinkler head blocked by shelving'));
     });
 
     test('appends photo reference when present', () {
@@ -61,11 +46,11 @@ void main() {
         text: 'Missing exit sign',
         photoFileRef: 'photos/img001.jpg',
       );
-      final decoded = _decode(CactusVoiceAgent.buildMessages(
+      final result = CactusVoiceAgent.buildSystemPrompt(
         _session(observations: [obs]),
-        'hello',
-      ));
-      expect(decoded[0]['content'], contains('[photo: photos/img001.jpg]'));
+        history,
+      );
+      expect(result, contains('[photo: photos/img001.jpg]'));
     });
 
     test('omits photo reference when absent', () {
@@ -74,30 +59,25 @@ void main() {
         timestamp: DateTime(2026, 5, 13),
         text: 'Door closes properly',
       );
-      final decoded = _decode(CactusVoiceAgent.buildMessages(
+      final result = CactusVoiceAgent.buildSystemPrompt(
         _session(observations: [obs]),
-        'hello',
-      ));
-      expect(decoded[0]['content'], isNot(contains('[photo:')));
+        history,
+      );
+      expect(result, isNot(contains('[photo:')));
     });
 
     test('handles observation with null text', () {
       final obs = Observation(id: '1', timestamp: DateTime(2026, 5, 13));
-      final decoded = _decode(CactusVoiceAgent.buildMessages(
+      final result = CactusVoiceAgent.buildSystemPrompt(
         _session(observations: [obs]),
-        'hello',
-      ));
-      expect(decoded[0]['content'], contains('(no text)'));
+        history,
+      );
+      expect(result, contains('(no text)'));
     });
 
     test('system prompt mentions offline context', () {
-      final decoded = _decode(CactusVoiceAgent.buildMessages(_session(), 'hello'));
-      expect(decoded[0]['content'], contains('offline'));
-    });
-
-    test('output is valid JSON', () {
-      final json = CactusVoiceAgent.buildMessages(_session(), 'test');
-      expect(() => jsonDecode(json), returnsNormally);
+      final result = CactusVoiceAgent.buildSystemPrompt(_session(), history);
+      expect(result, contains('offline'));
     });
   });
 
@@ -105,7 +85,6 @@ void main() {
     test('emits StateError on errorStream when model file does not exist', () async {
       final agent = CactusVoiceAgent(
         '/nonexistent/path/gemma-4-e2b-it-int4.gguf',
-        _MockStt(),
         _MockTts(),
       );
       final errors = <Object>[];
@@ -117,7 +96,7 @@ void main() {
         createdAt: DateTime(2026, 5, 14),
         updatedAt: DateTime(2026, 5, 14),
       );
-      await agent.startListening(session);
+      await agent.startListening(session, history);
       await sub.cancel();
 
       expect(errors, hasLength(1));

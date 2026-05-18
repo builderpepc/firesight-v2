@@ -14,6 +14,7 @@ class Observation extends Equatable {
     this.response,
     this.floorplanX,
     this.floorplanY,
+    this.category,
   });
 
   final String id;
@@ -31,6 +32,8 @@ class Observation extends Equatable {
   @JsonKey(name: 'floorplan_y')
   final double? floorplanY;
 
+  final String? category;
+
   factory Observation.fromJson(Map<String, dynamic> json) =>
       _$ObservationFromJson(json);
 
@@ -44,6 +47,7 @@ class Observation extends Equatable {
     String? response,
     double? floorplanX,
     double? floorplanY,
+    String? category,
   }) {
     return Observation(
       id: id ?? this.id,
@@ -53,6 +57,7 @@ class Observation extends Equatable {
       response: response ?? this.response,
       floorplanX: floorplanX ?? this.floorplanX,
       floorplanY: floorplanY ?? this.floorplanY,
+      category: category ?? this.category,
     );
   }
 
@@ -65,5 +70,6 @@ class Observation extends Equatable {
         response,
         floorplanX,
         floorplanY,
+        category,
       ];
 }
