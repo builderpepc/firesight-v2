@@ -18,6 +18,12 @@ Rather than making firefighters meticulously type pages of notes into a phone or
 
 Moreover, firefighters need to make detailed observations about every nook and cranny, including places like basements, elevators, or electrical rooms that might not have great internet or cell signal. As such, we've built in an offline AI fallback. Higher-powered AI operations wait for an internet connection, while regular observations and Q&A are supported locally.
 
+## Hackathon Tracks
+
+- Main Track
+- Global Resilience Track
+- Cactus Track
+
 # Technical details
 
 ## Current MVP Features
