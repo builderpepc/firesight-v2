@@ -1,25 +1,21 @@
-// ignore_for_file: unused_field
-import 'package:cactus/cactus.dart';
-
-/// CactusRAG: storeDocument, query for building document Q&A.
+/// Document indexing and retrieval-augmented generation (RAG) via Cactus.
+///
+/// Stub — implementation deferred pending Cactus RAG API integration.
+/// When implemented, use cactusIndexCreate / cactusIndexSearch from lib/cactus.dart.
 class RagService {
-  RagService(this._rag);
-
-  final CactusRAG _rag;
-
   /// Stores a document for RAG indexing (auto-chunking).
   Future<void> storeDocument(String id, String content) async {
-    // TODO: Call CactusRAG.storeDocument with auto-chunking.
+    // TODO: Call cactusIndexCreate + store with auto-chunking.
     throw UnimplementedError('RagService.storeDocument: TODO');
   }
 
   /// Queries RAG for relevant context to pass to LLM.
   Future<String> query(String question) async {
-    // TODO: Call CactusRAG.search for vector similarity.
+    // TODO: Call cactusIndexSearch for vector similarity.
     throw UnimplementedError('RagService.query: TODO');
   }
 
   Future<void> dispose() async {
-    // TODO: Release CactusRAG resources.
+    // TODO: Destroy Cactus index handle.
   }
 }

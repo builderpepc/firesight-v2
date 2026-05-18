@@ -11,4 +11,10 @@ class ConnectivityService {
   Stream<bool> get isOnline => _connectivity.onConnectivityChanged.map(
         (results) => results.any((r) => r != ConnectivityResult.none),
       );
+
+  /// One-shot connectivity check for agent tier selection.
+  Future<bool> checkOnline() async {
+    final results = await _connectivity.checkConnectivity();
+    return results.any((r) => r != ConnectivityResult.none);
+  }
 }

@@ -1,0 +1,3 @@
+```json
+{"_id":"69fdb1ef3c3dfe2a4bb5d7e3","id":"Cactus-Compute/gemma-4-e2b-it-cq","private":false,"tags":["region:us"],"downloads":0,"likes":0,"modelId":"Cactus-Compute/gemma-4-e2b-it-cq","author":"Cactus-Compute","sha":"5c2b4922df08c48e2eddaa883886fc101614601d","lastModified":"2026-05-14T01:48:40.000Z","gated":false,"disabled":false,"config":{},"siblings":[{"rfilename":".gitattributes"},{"rfilename":"A4V4L1.zip"},{"rfilename":"A4V4L2.zip"},{"rfilename":"L3V3A4.zip"},{"rfilename":"L3V4A4.zip"},{"rfilename":"L4V3A4.zip"},{"rfilename":"L4V4A4.zip"},{"rfilename":"assistant-L4.zip"},{"rfilename":"assistant-qdq.py"}],"spaces":[],"createdAt":"2026-05-08T09:50:39.000Z","usedStorage":30213443798}
+```

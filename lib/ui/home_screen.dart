@@ -1,5 +1,6 @@
 import 'package:firesight/core/di.dart';
 import 'package:firesight/models/session_metadata.dart';
+import 'package:firesight/services/model/model_download_service.dart';
 import 'package:firesight/services/session/session_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,8 +25,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   SessionSortOption _sort = SessionSortOption.updatedAtDesc;
 
   @override
+  void initState() {
+    super.initState();
+    // Trigger model download check after the first frame so the provider is
+    // fully mounted before we call into it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(modelDownloadProvider.notifier).ensureDownloaded();
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final sessionsAsync = ref.watch(sessionsProvider);
+    final downloadStatus = ref.watch(modelDownloadProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -64,52 +78,64 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             onPressed: () => _deleteAllSessions(context, ref),
             tooltip: 'Delete All Sessions',
           ),
+          IconButton(
+            tooltip: 'Voice Agent Debug',
+            icon: const Icon(Icons.bug_report_outlined),
+            onPressed: () => context.pushNamed('debug-voice'),
+          ),
         ],
       ),
-      body: sessionsAsync.when(
-        data: (sessions) {
-          final sortedSessions = _sortSessions(sessions);
-          if (sortedSessions.isEmpty) {
-            return const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.history, size: 64, color: Colors.grey),
-                  SizedBox(height: 24),
-                  Text('No recent sessions'),
-                ],
-              ),
-            );
-          }
-
-          return ListView.builder(
-            itemCount: sortedSessions.length,
-            itemBuilder: (context, index) {
-              final session = sortedSessions[index];
-              return ListTile(
-                leading: const CircleAvatar(
-                  child: Icon(Icons.description),
-                ),
-                title: Text(session.name),
-                subtitle: Text(_buildSessionSubtitle(session)),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                  onPressed: () => _deleteSession(context, ref, session),
-                  tooltip: 'Delete Session',
-                ),
-                onTap: () async {
-                  await context.pushNamed(
-                    'session',
-                    pathParameters: {'id': session.id},
+      body: Column(
+        children: [
+          _ModelDownloadBanner(status: downloadStatus),
+          Expanded(
+            child: sessionsAsync.when(
+              data: (sessions) {
+                final sortedSessions = _sortSessions(sessions);
+                if (sortedSessions.isEmpty) {
+                  return const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.history, size: 64, color: Colors.grey),
+                        SizedBox(height: 24),
+                        Text('No recent sessions'),
+                      ],
+                    ),
                   );
-                  ref.invalidate(sessionsProvider);
-                },
-              );
-            },
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(child: Text('Error: $err')),
+                }
+
+                return ListView.builder(
+                  itemCount: sortedSessions.length,
+                  itemBuilder: (context, index) {
+                    final session = sortedSessions[index];
+                    return ListTile(
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.description),
+                      ),
+                      title: Text(session.name),
+                      subtitle: Text(_buildSessionSubtitle(session)),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        onPressed: () => _deleteSession(context, ref, session),
+                        tooltip: 'Delete Session',
+                      ),
+                      onTap: () async {
+                        await context.pushNamed(
+                          'session',
+                          pathParameters: {'id': session.id},
+                        );
+                        ref.invalidate(sessionsProvider);
+                      },
+                    );
+                  },
+                );
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (err, stack) => Center(child: Text('Error: $err')),
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
@@ -264,5 +290,137 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
     lines.add('Last updated: ${session.updatedAt.toLocal()}');
     return lines.join('\n');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Download banner
+// ---------------------------------------------------------------------------
+
+class _ModelDownloadBanner extends ConsumerWidget {
+  const _ModelDownloadBanner({required this.status});
+
+  final ModelDownloadStatus status;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return switch (status) {
+      ModelDownloadIdle() || ModelDownloadReady() => const SizedBox.shrink(),
+      ModelDownloadChecking() => const LinearProgressIndicator(),
+      ModelDownloadNeedsWifi() => _InfoBanner(
+          icon: Icons.wifi,
+          message: 'Gemma 4 model download requires WiFi (4.4 GB).',
+          actionLabel: 'Download anyway',
+          onAction: () =>
+              ref.read(modelDownloadProvider.notifier).startDownloadOnMobile(),
+        ),
+      ModelDownloadInProgress(
+        progress: final p,
+        bytesReceived: final received,
+        totalBytes: final total,
+      ) =>
+        _ProgressBanner(progress: p, bytesReceived: received, totalBytes: total),
+      ModelDownloadExtracting() => const LinearProgressIndicator(),
+      ModelDownloadFailed(message: final msg) => _InfoBanner(
+          icon: Icons.error_outline,
+          color: Colors.red.shade700,
+          message: msg,
+          actionLabel: 'Retry',
+          onAction: () =>
+              ref.read(modelDownloadProvider.notifier).retryDownload(),
+        ),
+    };
+  }
+}
+
+class _ProgressBanner extends ConsumerWidget {
+  const _ProgressBanner({
+    required this.progress,
+    required this.bytesReceived,
+    required this.totalBytes,
+  });
+
+  final double? progress;
+  final int bytesReceived;
+  final int totalBytes;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final receivedMb = (bytesReceived / 1024 / 1024).toStringAsFixed(0);
+    final totalMb = totalBytes > 0
+        ? ' / ${(totalBytes / 1024 / 1024).toStringAsFixed(0)} MB'
+        : '';
+    final pct = progress != null ? ' (${(progress! * 100).toStringAsFixed(0)}%)' : '';
+
+    return Container(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.download, size: 16),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Downloading Gemma 4 model... $receivedMb MB$totalMb$pct',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              TextButton(
+                onPressed: () =>
+                    ref.read(modelDownloadProvider.notifier).cancelDownload(),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          LinearProgressIndicator(value: progress),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoBanner extends StatelessWidget {
+  const _InfoBanner({
+    required this.icon,
+    required this.message,
+    required this.actionLabel,
+    required this.onAction,
+    this.color,
+  });
+
+  final IconData icon;
+  final String message;
+  final String actionLabel;
+  final VoidCallback onAction;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveColor = color ?? Theme.of(context).colorScheme.secondary;
+    return Container(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: effectiveColor),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: effectiveColor),
+            ),
+          ),
+          TextButton(onPressed: onAction, child: Text(actionLabel)),
+        ],
+      ),
+    );
   }
 }

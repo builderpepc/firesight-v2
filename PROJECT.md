@@ -62,13 +62,15 @@ field suggestion.
 - [Cactus docs homepage](https://docs.cactuscompute.com/latest/)
   - [GitHub repo](https://github.com/cactus-compute/cactus)
   - [HuggingFace](https://huggingface.co/Cactus-Compute) (includes Cactus-optimized models)
-  - [Flutter SDK reference](https://docs.cactuscompute.com/latest/flutter/) and [GitHub repo](https://github.com/cactus-compute/cactus-flutter)
+  - [Flutter SDK reference](https://docs.cactuscompute.com/latest/flutter/) and [GitHub repo](https://github.com/cactus-compute/cactus/tree/main/flutter)
+  - **Note:** `https://github.com/cactus-compute/cactus-flutter` is the deprecated Flutter SDK repo — do not use
 - [Flutter docs](https://docs.flutter.dev/)
 - [Google Gemini docs](https://ai.google.dev/gemini-api/docs)
 - [Google Gemma docs](https://ai.google.dev/gemma/docs)
   - [Gemma 4 models](https://ollama.com/library/gemma4)
   - [Gemma 3 1B models](https://ollama.com/library/gemma3:1b)
 - [firebase_ai (Firebase AI Logic) Flutter package](https://pub.dev/packages/firebase_ai)
+  - [Live API (bidirectional audio streaming) reference](https://firebase.google.com/docs/ai-logic/get-started-live-api)
 - [flutter_riverpod](https://pub.dev/packages/flutter_riverpod) — state management
 - [go_router](https://pub.dev/packages/go_router) — declarative navigation
 - [record](https://pub.dev/packages/record) — microphone recording

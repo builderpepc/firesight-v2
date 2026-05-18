@@ -1,0 +1,3 @@
+```json
+{"_id":"69f91d7b60171c7e2562d5a1","id":"Cactus-Compute/gemma4-tflite-encoders","author":"Cactus-Compute","sha":"3216aa22bbc023ee56a565b935d43607294db2f7","lastModified":"2026-05-04T22:29:39.000Z","private":false,"gated":false,"disabled":false,"tags":["region:us"],"downloads":12,"likes":0,"siblings":[{"rfilename":".gitattributes"},{"rfilename":"audio_encoder.tflite"},{"rfilename":"vision_encoder.tflite"}],"createdAt":"2026-05-04T22:28:11.000Z","usedStorage":1775883196}
+```

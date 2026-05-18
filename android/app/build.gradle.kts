@@ -46,3 +46,9 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // emoji2 is referenced by a transitive dep's startup initializer but not
+    // pulled into the APK automatically — include it explicitly to prevent crash.
+    implementation("androidx.emoji2:emoji2:1.4.0")
+}

@@ -44,7 +44,7 @@ ls .claude/skills/   # should list firesight-setup
 Run these first to confirm the required tooling is installed:
 
 ```bash
-flutter --version        # Must be ≥ 3.0
+flutter --version        # Must be ≥ 3.1.0
 adb --version            # Must be present for Android work (from Android SDK platform-tools)
 node --version           # Required for Firebase CLI
 dart pub global list     # Check for flutterfire_cli
@@ -121,12 +121,21 @@ This command writes three files that must exist before the app will compile:
 If any of these already exist and look correct (non-empty, contain the project ID `firesight-app`),
 you can skip `flutterfire configure` for that platform.
 
-### Enable Gemini Developer API
+### Enable Vertex AI backend (required for Live API)
 
-This cannot be done from the CLI — tell the developer:
+FireSight uses `FirebaseAI.vertexAI()` (not the Gemini Developer API) because the Live API
+(streaming bidirectional audio) is only available on the Vertex AI backend.
 
-> In the Firebase Console for project `firesight-app`, navigate to **Build → AI Logic** and
-> enable the Gemini Developer API. This is required for the online voice agent (Tier 1).
+This requires two steps that cannot be done from the CLI:
+
+**Step 1 — Enable GCP APIs.** In the [Google Cloud Console](https://console.cloud.google.com)
+for the `firesight-app` project, navigate to **APIs & Services → Enable APIs** and enable:
+- `Firebase AI Logic API` (`firebasevertexai.googleapis.com`)
+- `Vertex AI API` (`aiplatform.googleapis.com`)
+
+**Step 2 — Enable billing.** Vertex AI requires a billing account linked to the GCP project.
+In the Cloud Console, go to **Billing** and link a billing account if one is not already attached.
+Without billing, API calls will fail at runtime with a WebSocket 1008 error.
 
 ---
 
@@ -218,60 +227,97 @@ simulator is sufficient for validating the Flutter app scaffold and normal navig
 
 ## Phase 4 — Cactus Native Library (Android)
 
-Cactus provides on-device LLM inference. Its native `.so` must be placed manually.
+Cactus provides on-device LLM inference. `libcactus.so` (arm64-v8a) is **already committed** to
+the repo at `android/app/src/main/jniLibs/arm64-v8a/libcactus.so` and is included automatically
+in every APK build. No manual download is needed for normal development.
 
-### Download
-
-Go to https://github.com/cactus-compute/cactus/releases and download the latest Android release
-archive. Extract it.
-
-### Place the library
-
-```bash
-# Create the directory if it doesn't exist
-mkdir -p android/app/src/main/jniLibs/arm64-v8a
-
-# Copy the library — adjust the source path to where you extracted the release
-cp <extracted-path>/arm64-v8a/libcactus.so android/app/src/main/jniLibs/arm64-v8a/libcactus.so
-```
-
-### Verify
+### Verify (fresh clone)
 
 ```bash
 ls android/app/src/main/jniLibs/arm64-v8a/libcactus.so
 ```
 
-Must exit 0. If the file is missing, the app will build but crash at runtime when attempting
-on-device inference.
+Must exit 0. If the file is somehow missing (e.g., from a partial clone), see the rebuild
+instructions below.
+
+### Rebuilding `libcactus.so` from source
+
+Cactus only supports `arm64-v8a` due to ARM NEON requirements — x86_64 builds are explicitly
+blocked. You need a Linux environment (WSL on Windows or native Linux/macOS) with Android NDK r27c.
+
+**On Windows via WSL:**
+
+```bash
+# One-time: download NDK r27c into WSL
+wsl -d Ubuntu bash << 'WSLEOF'
+mkdir -p ~/android-ndk
+cd ~/android-ndk
+curl -O https://dl.google.com/android/repository/android-ndk-r27-linux.zip
+unzip android-ndk-r27-linux.zip
+WSLEOF
+```
+
+```bash
+# Clone Cactus and build
+wsl -d Ubuntu bash << 'WSLEOF'
+git clone https://github.com/cactus-compute/cactus ~/cactus-build/cactus
+cd ~/cactus-build/cactus/android
+NDK=~/android-ndk/android-ndk-r27
+cmake -S . -B build-arm64 \
+  -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake \
+  -DANDROID_ABI=arm64-v8a \
+  -DANDROID_PLATFORM=android-21 \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DPLATFORM_CPU_ONLY=1 \
+  -GNinja
+cmake --build build-arm64 --target cactus -j$(nproc)
+cp build-arm64/libcactus.so libcactus-arm64-v8a.so
+WSLEOF
+```
+
+Then copy the built `.so` into the project:
+
+```bash
+wsl -d Ubuntu bash << 'WSLEOF'
+cp ~/cactus-build/cactus/android/libcactus-arm64-v8a.so \
+   /mnt/c/path/to/firesight-v2/android/app/src/main/jniLibs/arm64-v8a/libcactus.so
+WSLEOF
+```
+
+**On macOS / Linux:** same steps without the `wsl` wrapper.
 
 ### iOS note
 
-The Flutter iOS app scaffold builds and runs in Simulator through CocoaPods. Cactus model runtime
-behavior on iOS still needs dedicated physical-device testing when offline inference is implemented
-beyond the current stubs.
+`cactus-ios.xcframework` has not yet been integrated. iOS Cactus inference is deferred to a
+macOS contributor. The iOS app scaffold builds and runs in Simulator through CocoaPods without it.
 
 ---
 
 ## Phase 5 — Model Files
 
 Cactus loads GGUF model files from the device's local storage at runtime. The app looks in the
-`models/` subdirectory of the app's documents directory (configured in `lib/core/constants.dart`).
+`cactus/` subdirectory of the app's documents directory (`getApplicationDocumentsDirectory()`).
+On Android this resolves to `/data/user/0/com.firesight.firesight/app_flutter/cactus/`.
 
 Download from https://huggingface.co/Cactus-Compute and push to the connected device:
 
-| Tier | Model to download | Use case |
-|------|-------------------|----------|
-| Tier 2 | Gemma 4 E2B or E4B (GGUF) | No internet, capable device (≥ 6 GB RAM). **Not viable on Samsung Galaxy S22** — skip for S22 testing. |
+| Tier | Model slug | Use case |
+|------|-----------|----------|
+| Tier 2 E2B | `gemma-4-e2b-it-int4.gguf` | No internet, capable device (≥ 4 GB RAM). ~4.4 GB. |
+| Tier 2 E4B | `gemma-4-e4b-it-int8.gguf` | No internet, high-RAM device (≥ 8 GB). ~8 GB. |
 | Tier 3 | Gemma 3 1B (GGUF) | No internet, lower-power device |
 
 To push a model file to a connected Android device:
 ```bash
-# Find the app's files directory (requires a debug build)
-adb shell run-as com.firesight.firesight mkdir -p files/models
+# Create the cactus subdir and push
+adb shell run-as com.firesight.firesight mkdir -p app_flutter/cactus
 
 adb push <local-model.gguf> /sdcard/Download/<model-file>.gguf
-adb shell run-as com.firesight.firesight cp /sdcard/Download/<model-file>.gguf files/models/
+adb shell run-as com.firesight.firesight cp /sdcard/Download/<model-file>.gguf app_flutter/cactus/
 ```
+
+If `startListening()` is invoked and the model file is absent, the Voice Agent Debug screen will
+display a red error banner with the exact expected path — use that path with `adb push`.
 
 Model files are large (1–8 GB). Skip this phase if only testing the online (Gemini) tier.
 
@@ -428,6 +474,8 @@ After launch, verify:
 1. The HomeScreen renders (FireSight title, "Recent Sessions - TODO" placeholder, FAB)
 2. Tapping the FAB navigates to the InspectionScreen ("New Inspection" title)
 3. No crash or red error screen
+4. Tap the bug icon (🐛) in the AppBar to open the **Voice Agent Debug** screen; with internet,
+   the tier badge should read "Tier 1 — Gemini" and the Start button should be enabled
 
 To find the FAB's tap coordinates on any device without guessing:
 ```bash
@@ -454,6 +502,10 @@ adb shell input tap <cx> <cy>
 | CocoaPods warns it did not set base configuration | Include Pods xcconfigs from `ios/Flutter/Debug.xcconfig`, `Release.xcconfig`, and `Profile.xcconfig` |
 | CoreSimulatorService connection errors | Rerun `xcrun simctl ...` with normal macOS permissions; restart Simulator if needed |
 | `Failed to find target 'android-36'` | Run `sdkmanager "platforms;android-36"` |
-| `libcactus.so not found` at runtime | Place the file at `android/app/src/main/jniLibs/arm64-v8a/libcactus.so` |
-| Gemini API calls fail | Enable the Gemini Developer API in Firebase Console → AI Logic |
+| `libcactus.so not found` at runtime | The file should already be committed at `android/app/src/main/jniLibs/arm64-v8a/libcactus.so` — check git status; if missing, rebuild from source (see Phase 4) |
+| Gemini API calls fail with WebSocket 1008 "not found" | Wrong model name — use `gemini-live-2.5-flash-preview-native-audio-09-2025` (check `lib/core/constants.dart`) |
+| Gemini API calls fail with WebSocket 1008 "API not enabled" | Enable `firebasevertexai.googleapis.com` and `aiplatform.googleapis.com` in GCP Console |
+| Gemini API calls fail with WebSocket 1008 "billing must be enabled" | Link a billing account to the GCP project in Cloud Console → Billing |
+| Voice agent connects but agent replies never appear | Do not use `ResponseModalities.text` with the native-audio model — use `ResponseModalities.audio` with `outputAudioTranscription: AudioTranscriptionConfig()` |
+| Android emulator mic sends silence / no transcript | Run `adb emu avd hostmicon` to enable host-mic passthrough; the emulator virtual mic sends silence by default |
 | 42 packages have newer incompatible versions | Informational only — `flutter pub get` pins to compatible versions, no action needed |

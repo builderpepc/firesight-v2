@@ -1,0 +1,3 @@
+```json
+{"_id":"6a02f0d27feb039eda9f1113","id":"Cactus-Compute/parakeet-tdt-0.6b-v3-cq","private":false,"tags":["region:us"],"downloads":0,"likes":0,"modelId":"Cactus-Compute/parakeet-tdt-0.6b-v3-cq","author":"Cactus-Compute","sha":"1fa31e900e7cd6416b70f71b433f7c653a77635a","lastModified":"2026-05-12T09:20:26.000Z","gated":false,"disabled":false,"config":{},"siblings":[{"rfilename":".gitattributes"},{"rfilename":"CQ4.zip"}],"spaces":[],"createdAt":"2026-05-12T09:20:18.000Z","usedStorage":347290990}
+```
