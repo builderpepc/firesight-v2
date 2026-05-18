@@ -426,89 +426,75 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
         ],
       ),
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: IntrinsicHeight(
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                        child: _buildSessionDetailsCard(),
-                      ),
-                      Expanded(
-                        child: _session!.floorplanPath == null
-                            ? _buildNoFloorplanState()
-                            : Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 16),
-                                child: GestureDetector(
-                                  onTap: _openFocusedFloorplan,
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(16),
-                                    child: Stack(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: _buildSessionDetailsCard(),
+            ),
+            Expanded(
+              child: _session!.floorplanPath == null
+                  ? _buildNoFloorplanState()
+                  : Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: GestureDetector(
+                        onTap: _openFocusedFloorplan,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: Stack(
+                            children: [
+                              FloorplanViewer(
+                                floorplanPath: _session!.floorplanPath!,
+                                observations: _session!.observations,
+                                onObservationTap: _showObservationDetails,
+                              ),
+                              Positioned(
+                                right: 12,
+                                top: 12,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color:
+                                        Colors.black.withValues(alpha: 0.6),
+                                    borderRadius:
+                                        BorderRadius.circular(999),
+                                  ),
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        FloorplanViewer(
-                                          floorplanPath:
-                                              _session!.floorplanPath!,
-                                          observations: _session!.observations,
-                                          onObservationTap:
-                                              _showObservationDetails,
+                                        Icon(
+                                          Icons.zoom_out_map,
+                                          size: 16,
+                                          color: Colors.white,
                                         ),
-                                        Positioned(
-                                          right: 12,
-                                          top: 12,
-                                          child: DecoratedBox(
-                                            decoration: BoxDecoration(
-                                              color: Colors.black
-                                                  .withValues(alpha: 0.6),
-                                              borderRadius:
-                                                  BorderRadius.circular(999),
-                                            ),
-                                            child: const Padding(
-                                              padding: EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                                vertical: 6,
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    Icons.zoom_out_map,
-                                                    size: 16,
-                                                    color: Colors.white,
-                                                  ),
-                                                  SizedBox(width: 6),
-                                                  Text(
-                                                    'Tap to focus',
-                                                    style: TextStyle(
-                                                        color: Colors.white),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
+                                        SizedBox(width: 6),
+                                        Text(
+                                          'Tap to focus',
+                                          style:
+                                              TextStyle(color: Colors.white),
                                         ),
                                       ],
                                     ),
                                   ),
                                 ),
                               ),
-                      ),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                          child: _buildObservationHistory(),
+                            ],
+                          ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
+                    ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: _buildObservationHistory(),
               ),
-            );
-          },
+            ),
+          ],
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
