@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,6 +15,8 @@ import 'package:firesight/services/voice/mock_voice_agent.dart';
 import 'package:firesight/services/voice/voice_action.dart';
 import 'package:firesight/services/voice/voice_agent.dart';
 import 'package:firesight/ui/widgets/floorplan_viewer.dart';
+import 'package:firesight/ui/widgets/observation_editor_dialog.dart';
+import 'package:firesight/ui/widgets/voice_session_sheet.dart';
 
 class InspectionScreen extends ConsumerStatefulWidget {
   const InspectionScreen({super.key, this.sessionId});
@@ -80,11 +83,14 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
   }
 
   Future<void> _pickFloorplan() async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery);
-    if (image != null && _session != null) {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+    );
+    
+    if (result != null && result.files.single.path != null && _session != null) {
       final service = await ref.read(sessionServiceProvider.future);
-      final permanentPath = await service.saveImage(image.path);
+      final permanentPath = await service.saveImage(result.files.single.path!);
       final updatedSession = _session!.copyWith(floorplanPath: permanentPath);
       await _persistSession(updatedSession);
       setState(() {});
@@ -125,77 +131,64 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
     final photo = await picker.pickImage(source: ImageSource.camera);
 
     if (photo == null) return;
-
-    final noteController = TextEditingController();
-
     if (!mounted) return;
 
-    final note = await showDialog<String>(
+    await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Note to Picture'),
-        content: TextField(
-          controller: noteController,
-          decoration:
-              const InputDecoration(hintText: 'Enter observation details...'),
-          maxLines: 3,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, noteController.text),
-            child: const Text('Save'),
-          ),
-        ],
+      builder: (context) => ObservationEditorDialog(
+        initialPhotoPath: photo.path,
+        onSave: (text, category, photoPath) async {
+          Navigator.pop(context);
+          final service = await ref.read(sessionServiceProvider.future);
+          final permanentPath = photoPath != null 
+              ? await service.saveImage(photoPath) 
+              : null;
+
+          final observation = Observation(
+            id: const Uuid().v4(),
+            timestamp: DateTime.now(),
+            text: text,
+            category: category,
+            photoFileRef: permanentPath,
+            floorplanX: x,
+            floorplanY: y,
+          );
+
+          final updatedSession = _session!.copyWith(
+            observations: [..._session!.observations, observation],
+          );
+
+          await _persistSession(updatedSession);
+          if (mounted) setState(() {});
+        },
       ),
     );
-    noteController.dispose();
-
-    if (note != null) {
-      final service = await ref.read(sessionServiceProvider.future);
-      final permanentPath = await service.saveImage(photo.path);
-
-      final observation = Observation(
-        id: const Uuid().v4(),
-        timestamp: DateTime.now(),
-        text: note,
-        photoFileRef: permanentPath,
-        floorplanX: x,
-        floorplanY: y,
-      );
-
-      final updatedSession = _session!.copyWith(
-        observations: [..._session!.observations, observation],
-      );
-
-      await _persistSession(updatedSession);
-      setState(() {});
-    }
   }
 
   Future<void> _addNoteOnlyObservation() async {
     if (_session == null) return;
 
-    final note = await _showObservationEditorDialog();
-    if (note == null) {
-      return;
-    }
+    await showDialog(
+      context: context,
+      builder: (context) => ObservationEditorDialog(
+        onSave: (text, category, photoPath) async {
+          Navigator.pop(context);
+          final observation = Observation(
+            id: const Uuid().v4(),
+            timestamp: DateTime.now(),
+            text: text,
+            category: category,
+          );
 
-    final observation = Observation(
-      id: const Uuid().v4(),
-      timestamp: DateTime.now(),
-      text: note,
+          final updatedSession = _session!.copyWith(
+            observations: [..._session!.observations, observation],
+          );
+
+          await _persistSession(updatedSession);
+          if (mounted) setState(() {});
+        },
+      ),
     );
-
-    final updatedSession = _session!.copyWith(
-      observations: [..._session!.observations, observation],
-    );
-
-    await _persistSession(updatedSession);
-    setState(() {});
   }
 
   Future<void> _openVoiceSession() async {
@@ -219,7 +212,7 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (context) => _VoiceSessionSheet(
+      builder: (context) => VoiceSessionSheet(
         agent: agent,
         session: _session!,
         onSessionUpdated: (updated) async {
@@ -227,6 +220,7 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
           if (mounted) setState(() {});
         },
         onFloorplanRequested: _pickFloorplan,
+        onSaveRequested: _saveSession,
       ),
     );
   }
@@ -319,6 +313,12 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
               if (observation.photoFileRef != null)
                 Image.file(File(observation.photoFileRef!)),
               const SizedBox(height: 16),
+              if (observation.category != null) ...[
+                const Text('Category:',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                Text(observation.category!),
+                const SizedBox(height: 8),
+              ],
               const Text('Note:',
                   style: TextStyle(fontWeight: FontWeight.bold)),
               Text(observation.text ?? 'No note added'),
@@ -350,70 +350,38 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
   Future<void> _editObservation(Observation observation) async {
     if (_session == null) return;
 
-    final updatedNote = await _showObservationEditorDialog(
-      initialValue: observation.text ?? '',
-      title: 'Edit Note',
-      actionLabel: 'Update',
-    );
-    if (updatedNote == null) {
-      return;
-    }
-
-    final updatedObservation = Observation(
-      id: observation.id,
-      timestamp: observation.timestamp,
-      text: updatedNote,
-      photoFileRef: observation.photoFileRef,
-      response: observation.response,
-      floorplanX: observation.floorplanX,
-      floorplanY: observation.floorplanY,
-    );
-
-    final updatedSession = _session!.copyWith(
-      observations: _session!.observations
-          .map((item) => item.id == observation.id ? updatedObservation : item)
-          .toList(),
-    );
-
-    await _persistSession(updatedSession);
-    setState(() {});
-  }
-
-  Future<String?> _showObservationEditorDialog({
-    String initialValue = '',
-    String title = 'Add Note',
-    String actionLabel = 'Save',
-  }) async {
-    final noteController = TextEditingController(text: initialValue);
-    final result = await showDialog<String>(
+    await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: noteController,
-          decoration:
-              const InputDecoration(hintText: 'Enter observation details...'),
-          maxLines: 4,
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, noteController.text.trim()),
-            child: Text(actionLabel),
-          ),
-        ],
+      builder: (context) => ObservationEditorDialog(
+        initialText: observation.text,
+        initialCategory: observation.category,
+        initialPhotoPath: observation.photoFileRef,
+        onSave: (text, category, photoPath) async {
+          Navigator.pop(context);
+          final service = await ref.read(sessionServiceProvider.future);
+          
+          String? finalPhotoPath = photoPath;
+          if (photoPath != observation.photoFileRef && photoPath != null) {
+            finalPhotoPath = await service.saveImage(photoPath);
+          }
+
+          final updatedObservation = observation.copyWith(
+            text: text,
+            category: category,
+            photoFileRef: finalPhotoPath,
+          );
+
+          final updatedSession = _session!.copyWith(
+            observations: _session!.observations
+                .map((item) => item.id == observation.id ? updatedObservation : item)
+                .toList(),
+          );
+
+          await _persistSession(updatedSession);
+          if (mounted) setState(() {});
+        },
       ),
     );
-
-    if (result == null) {
-      return null;
-    }
-
-    return result.trim();
   }
 
   @override
@@ -458,72 +426,89 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
         ],
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: _buildSessionDetailsCard(),
-            ),
-            Expanded(
-              child: _session!.floorplanPath == null
-                  ? _buildNoFloorplanState()
-                  : Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: GestureDetector(
-                        onTap: _openFocusedFloorplan,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: Stack(
-                            children: [
-                              FloorplanViewer(
-                                floorplanPath: _session!.floorplanPath!,
-                                observations: _session!.observations,
-                                onObservationTap: _showObservationDetails,
-                              ),
-                              Positioned(
-                                right: 12,
-                                top: 12,
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.6),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: const Padding(
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 6,
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                        child: _buildSessionDetailsCard(),
+                      ),
+                      Expanded(
+                        child: _session!.floorplanPath == null
+                            ? _buildNoFloorplanState()
+                            : Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 16),
+                                child: GestureDetector(
+                                  onTap: _openFocusedFloorplan,
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: Stack(
                                       children: [
-                                        Icon(
-                                          Icons.zoom_out_map,
-                                          size: 16,
-                                          color: Colors.white,
+                                        FloorplanViewer(
+                                          floorplanPath:
+                                              _session!.floorplanPath!,
+                                          observations: _session!.observations,
+                                          onObservationTap:
+                                              _showObservationDetails,
                                         ),
-                                        SizedBox(width: 6),
-                                        Text(
-                                          'Tap to focus',
-                                          style: TextStyle(color: Colors.white),
+                                        Positioned(
+                                          right: 12,
+                                          top: 12,
+                                          child: DecoratedBox(
+                                            decoration: BoxDecoration(
+                                              color: Colors.black
+                                                  .withValues(alpha: 0.6),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                            ),
+                                            child: const Padding(
+                                              padding: EdgeInsets.symmetric(
+                                                horizontal: 10,
+                                                vertical: 6,
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons.zoom_out_map,
+                                                    size: 16,
+                                                    color: Colors.white,
+                                                  ),
+                                                  SizedBox(width: 6),
+                                                  Text(
+                                                    'Tap to focus',
+                                                    style: TextStyle(
+                                                        color: Colors.white),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
                                         ),
                                       ],
                                     ),
                                   ),
                                 ),
                               ),
-                            ],
-                          ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                          child: _buildObservationHistory(),
                         ),
                       ),
-                    ),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: _buildObservationHistory(),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ],
+            );
+          },
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -584,7 +569,7 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
   Widget _buildSessionDetailsCard() {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -598,18 +583,20 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
               decoration: const InputDecoration(
                 labelText: 'Session Name',
                 border: OutlineInputBorder(),
+                isDense: true,
               ),
               textInputAction: TextInputAction.next,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             TextField(
               controller: _inspectorController,
               decoration: const InputDecoration(
                 labelText: 'Inspector',
                 border: OutlineInputBorder(),
+                isDense: true,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Text(
               'Updated: ${_session!.updatedAt.toLocal()}',
               style: Theme.of(context).textTheme.bodySmall,
@@ -841,7 +828,7 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -865,7 +852,7 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             if (observations.isEmpty)
               const Expanded(
                 child: Center(
@@ -875,6 +862,8 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
             else
               Expanded(
                 child: ListView.separated(
+                  shrinkWrap: true,
+                  physics: const ClampingScrollPhysics(),
                   itemCount: observations.length,
                   separatorBuilder: (context, index) =>
                       const Divider(height: 16),
@@ -899,8 +888,37 @@ class _InspectionScreenState extends ConsumerState<InspectionScreen> {
                               ),
                             ),
                       title: Text(observation.text ?? 'Untitled observation'),
-                      subtitle:
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (observation.category != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2, bottom: 2),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .secondaryContainer,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  observation.category!,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelSmall
+                                      ?.copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSecondaryContainer,
+                                      ),
+                                ),
+                              ),
+                            ),
                           Text(observation.timestamp.toLocal().toString()),
+                        ],
+                      ),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => _showObservationDetails(observation),
                     );
@@ -1027,6 +1045,9 @@ class _VoiceSessionSheetState extends ConsumerState<_VoiceSessionSheet> {
         await _takePhotoObservation(description: description);
       case UploadFloorplan():
         await widget.onFloorplanRequested();
+      case StartNewInspection():
+      case SaveSession():
+        break;
     }
   }
 

@@ -34,5 +34,8 @@ abstract class VoiceAgent {
   /// such as recording an observation, taking a photo, or uploading a floorplan.
   Stream<VoiceAction> get actionStream;
 
+  /// Stream of audio amplitude (0.0 to 1.0) for visualization.
+  Stream<double> get audioLevelStream;
+
   Future<void> dispose();
 }

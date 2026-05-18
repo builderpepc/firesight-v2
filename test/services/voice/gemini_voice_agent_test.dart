@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:firesight/models/conversation_history.dart';
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/models/observation.dart';
 import 'package:firesight/services/voice/gemini_voice_agent.dart';
@@ -7,15 +8,16 @@ import 'package:firesight/services/voice/gemini_voice_agent.dart';
 // These unit tests cover the pure system-instruction builder.
 
 void main() {
+  final history = ConversationHistory();
   group('GeminiVoiceAgent.buildSystemInstruction', () {
     test('includes session name', () {
       final session = _session(name: 'Station 4 — Warehouse A');
-      final result = GeminiVoiceAgent.buildSystemInstruction(session);
+      final result = GeminiVoiceAgent.buildSystemInstruction(session, history);
       expect(result, contains('Station 4 — Warehouse A'));
     });
 
     test('reports no observations when list is empty', () {
-      final result = GeminiVoiceAgent.buildSystemInstruction(_session());
+      final result = GeminiVoiceAgent.buildSystemInstruction(_session(), history);
       expect(result, contains('No observations recorded yet.'));
     });
 
@@ -26,7 +28,7 @@ void main() {
         text: 'Sprinkler head blocked by shelving',
       );
       final result =
-          GeminiVoiceAgent.buildSystemInstruction(_session(observations: [obs]));
+          GeminiVoiceAgent.buildSystemInstruction(_session(observations: [obs]), history);
       expect(result, contains('Sprinkler head blocked by shelving'));
       expect(result, contains('2026-05-07'));
     });
@@ -39,7 +41,7 @@ void main() {
         photoFileRef: 'photos/img001.jpg',
       );
       final result =
-          GeminiVoiceAgent.buildSystemInstruction(_session(observations: [obs]));
+          GeminiVoiceAgent.buildSystemInstruction(_session(observations: [obs]), history);
       expect(result, contains('[photo: photos/img001.jpg]'));
     });
 
@@ -50,14 +52,14 @@ void main() {
         text: 'Door closes properly',
       );
       final result =
-          GeminiVoiceAgent.buildSystemInstruction(_session(observations: [obs]));
+          GeminiVoiceAgent.buildSystemInstruction(_session(observations: [obs]), history);
       expect(result, isNot(contains('[photo:')));
     });
 
     test('handles observation with null text', () {
       final obs = Observation(id: '1', timestamp: DateTime(2026, 5, 7));
       final result =
-          GeminiVoiceAgent.buildSystemInstruction(_session(observations: [obs]));
+          GeminiVoiceAgent.buildSystemInstruction(_session(observations: [obs]), history);
       expect(result, contains('(no text)'));
     });
 
@@ -74,6 +76,7 @@ void main() {
       );
       final result = GeminiVoiceAgent.buildSystemInstruction(
         _session(observations: [obs1, obs2]),
+        history,
       );
       expect(result.indexOf('First observation'),
           lessThan(result.indexOf('Second observation')));

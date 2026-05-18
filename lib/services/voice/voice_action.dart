@@ -3,6 +3,16 @@ sealed class VoiceAction {
   const VoiceAction();
 }
 
+/// Agent requested to start a brand new inspection session.
+class StartNewInspection extends VoiceAction {
+  const StartNewInspection();
+}
+
+/// Agent requested to save the current session.
+class SaveSession extends VoiceAction {
+  const SaveSession();
+}
+
 /// Agent dictated a text observation the inspector said aloud.
 class RecordObservation extends VoiceAction {
   const RecordObservation(this.text);

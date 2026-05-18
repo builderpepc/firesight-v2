@@ -2,6 +2,7 @@ import 'package:json_annotation/json_annotation.dart';
 import 'package:equatable/equatable.dart';
 import 'observation.dart';
 import 'building_document.dart';
+import 'conversation_history.dart';
 import 'form_field_suggestion.dart';
 import 'inspection_form.dart';
 
@@ -10,13 +11,14 @@ part 'inspection_session.g.dart';
 /// Represents a complete inspection session with observations.
 @JsonSerializable(explicitToJson: true)
 class InspectionSession extends Equatable {
-  const InspectionSession({
+  InspectionSession({
     required this.id,
     required this.name,
     required this.createdAt,
     required this.updatedAt,
     this.observations = const [],
     this.buildingDocuments = const [],
+    ConversationHistory? history,
     this.floorplanPath,
     this.zipCode,
     this.buildingType,
@@ -25,7 +27,7 @@ class InspectionSession extends Equatable {
     this.riskLevel,
     this.form = const InspectionForm(),
     this.formSuggestions = const [],
-  });
+  }) : history = history ?? ConversationHistory();
 
   final String id;
   final String name;
@@ -37,6 +39,8 @@ class InspectionSession extends Equatable {
 
   @JsonKey(name: 'building_documents')
   final List<BuildingDocument> buildingDocuments;
+
+  final ConversationHistory history;
 
   @JsonKey(name: 'floorplan_path')
   final String? floorplanPath;
@@ -67,6 +71,7 @@ class InspectionSession extends Equatable {
     DateTime? updatedAt,
     List<Observation>? observations,
     List<BuildingDocument>? buildingDocuments,
+    ConversationHistory? history,
     String? floorplanPath,
     String? zipCode,
     String? buildingType,
@@ -83,6 +88,7 @@ class InspectionSession extends Equatable {
       updatedAt: updatedAt ?? this.updatedAt,
       observations: observations ?? this.observations,
       buildingDocuments: buildingDocuments ?? this.buildingDocuments,
+      history: history ?? this.history,
       floorplanPath: floorplanPath ?? this.floorplanPath,
       zipCode: zipCode ?? this.zipCode,
       buildingType: buildingType ?? this.buildingType,
@@ -107,6 +113,7 @@ class InspectionSession extends Equatable {
         updatedAt,
         observations,
         buildingDocuments,
+        history,
         floorplanPath,
         zipCode,
         buildingType,

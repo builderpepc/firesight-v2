@@ -6,6 +6,7 @@ import 'package:path/path.dart';
 
 import 'package:firesight/models/inspection_session.dart';
 import 'package:firesight/models/observation.dart';
+import 'package:firesight/models/conversation_history.dart';
 import 'package:firesight/services/session/local_session_storage.dart';
 
 void main() {
@@ -108,6 +109,26 @@ void main() {
   });
 
   group('save / load round-trip', () {
+    test('persists conversation history', () async {
+      final history = ConversationHistory();
+      history.addUser('Hello agent');
+      history.addAssistant('Hello inspector');
+
+      final session = buildSession(
+        id: 'history-test',
+      ).copyWith(history: history);
+
+      await storage.saveSession(session);
+      final loaded = await storage.loadSession('history-test');
+
+      expect(loaded, isNotNull);
+      expect(loaded!.history.turns, hasLength(2));
+      expect(loaded.history.turns[0].role, 'user');
+      expect(loaded.history.turns[0].content, 'Hello agent');
+      expect(loaded.history.turns[1].role, 'assistant');
+      expect(loaded.history.turns[1].content, 'Hello inspector');
+    });
+
     test('persists observation text and photo references', () async {
       final external = await writeTempPhoto('source.jpg', 'photo-bytes');
       final storedPath = await storage.saveImage(external.path);
